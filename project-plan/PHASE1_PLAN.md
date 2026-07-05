@@ -9,7 +9,7 @@ the clipboard with a notification sound.
 
 ## Prerequisites
 
-- Python 3.11+ installed.
+- Python 3.13+ installed.
 - Tesseract OCR installed on the host machine
   (bundling comes in Phase 4).
 - A virtual environment for dependency isolation.

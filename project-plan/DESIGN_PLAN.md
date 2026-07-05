@@ -26,7 +26,7 @@ Python is the clear choice for this project because:
 
 | Component        | Library / Tool              |
 | ---------------- | --------------------------- |
-| Language         | Python 3.11+                |
+| Language         | Python 3.13+                |
 | GUI framework    | PyQt6                       |
 | OCR engine       | Tesseract OCR + pytesseract |
 | Screenshot       | mss (cross-platform)        |
