@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from PIL import Image
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, QRect, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -19,6 +20,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.capture import (
+    ScreenRecordingPermissionError,
+    crop_region,
+    take_screenshot,
+)
 from src.ocr import (
     OCRError,
     TesseractMissingError,
@@ -26,6 +32,7 @@ from src.ocr import (
 )
 from src.picker import open_image_dialog
 from src.preview import PreviewWidget
+from src.selector import SelectionOverlay
 
 
 class _OCRSignals(QObject):
@@ -72,6 +79,11 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(self._open_image)
         file_menu.addAction(open_action)
 
+        capture_action = QAction("&Capture Screen", self)
+        capture_action.setShortcut("Ctrl+Shift+X")
+        capture_action.triggered.connect(self._capture_screen)
+        file_menu.addAction(capture_action)
+
         file_menu.addSeparator()
 
         quit_action = QAction("&Quit", self)
@@ -109,11 +121,73 @@ class MainWindow(QMainWindow):
         self.preview.copy_btn.setEnabled(False)
         self.status_label.setText("Extracting text…")
 
-        self._executor.submit(self._run_ocr, path)
+        self._executor.submit(self._run_ocr, Image.open(path))
 
-    def _run_ocr(self, path: str) -> None:
+    def _capture_screen(self) -> None:
+        self.showMinimized()
+        QTimer.singleShot(500, self._do_capture)
+
+    def _do_capture(self) -> None:
         try:
-            image = Image.open(path)
+            screenshot = take_screenshot()
+        except ScreenRecordingPermissionError as exc:
+            self.showNormal()
+            self.activateWindow()
+            QMessageBox.warning(
+                self,
+                "Permission Required",
+                str(exc),
+            )
+            return
+        except Exception as exc:
+            self.showNormal()
+            self.activateWindow()
+            QMessageBox.critical(
+                self,
+                "Capture Error",
+                f"Could not capture screen:\n{exc}",
+            )
+            return
+
+        self._screenshot_image = screenshot
+
+        # Convert PIL Image to QPixmap for overlay
+        buf = io.BytesIO()
+        screenshot.save(buf, format="PNG")
+        buf.seek(0)
+        qpixmap = QPixmap()
+        qpixmap.loadFromData(buf.read())
+
+        self._overlay = SelectionOverlay(qpixmap)
+        self._overlay.region_selected.connect(self._on_region_selected)
+        self._overlay.cancelled.connect(self._on_capture_cancelled)
+        self._overlay.show()
+
+    def _on_region_selected(self, rect: QRect) -> None:
+        cropped = crop_region(self._screenshot_image, rect)
+
+        # Convert cropped PIL Image to QPixmap
+        buf = io.BytesIO()
+        cropped.save(buf, format="PNG")
+        buf.seek(0)
+        qpixmap = QPixmap()
+        qpixmap.loadFromData(buf.read())
+
+        self.showNormal()
+        self.activateWindow()
+        self.preview.set_image(qpixmap)
+        self.preview.set_text("")
+        self.preview.copy_btn.setEnabled(False)
+        self.status_label.setText("Extracting text…")
+
+        self._executor.submit(self._run_ocr, cropped)
+
+    def _on_capture_cancelled(self) -> None:
+        self.showNormal()
+        self.activateWindow()
+
+    def _run_ocr(self, image: Image.Image) -> None:
+        try:
             text = extract_text(image)
         except TesseractMissingError as exc:
             self._ocr_signals.error.emit(str(exc))
