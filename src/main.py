@@ -164,7 +164,17 @@ class MainWindow(QMainWindow):
         self._overlay.show()
 
     def _on_region_selected(self, rect: QRect) -> None:
-        cropped = crop_region(self._screenshot_image, rect)
+        # Scale selection from logical points to physical
+        # pixels for HiDPI / Retina displays.
+        screen = QApplication.primaryScreen()
+        ratio = screen.devicePixelRatio() if screen else 1.0
+        scaled_rect = QRect(
+            int(rect.x() * ratio),
+            int(rect.y() * ratio),
+            int(rect.width() * ratio),
+            int(rect.height() * ratio),
+        )
+        cropped = crop_region(self._screenshot_image, scaled_rect)
 
         # Convert cropped PIL Image to QPixmap
         buf = io.BytesIO()
