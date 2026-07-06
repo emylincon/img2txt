@@ -1,0 +1,30 @@
+[project]
+name = "img2txt"
+version = "0.1.0"
+description = "Extract text from images and copy to clipboard"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.13"
+authors = [
+    { name = "Emeka E Ugwuanyi" },
+]
+dependencies = [
+    "pytesseract>=0.3.10",
+    "PyQt6>=6.5",
+    "pyperclip>=1.8",
+    "Pillow>=10.0",
+]
+
+[project.scripts]
+img2txt = "src.main:main"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 79
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
