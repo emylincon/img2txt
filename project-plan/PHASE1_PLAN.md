@@ -176,13 +176,13 @@ with no crashes or unhandled errors.
 
 ## Acceptance Criteria
 
-- [ ] App launches with a PyQt6 window.
-- [ ] "Open Image" loads an image via file picker.
-- [ ] Image displays in the left panel.
-- [ ] OCR extracts text and displays it in the right
+- [x] App launches with a PyQt6 window.
+- [x] "Open Image" loads an image via file picker.
+- [x] Image displays in the left panel.
+- [x] OCR extracts text and displays it in the right
   panel.
-- [ ] "Copy to Clipboard" copies text and plays a
+- [x] "Copy to Clipboard" copies text and plays a
   sound.
-- [ ] Errors (no Tesseract, no text, bad file) show
+- [x] Errors (no Tesseract, no text, bad file) show
   user-friendly messages.
-- [ ] All unit tests pass (`pytest tests/`).
+- [x] All unit tests pass (`pytest tests/`).
