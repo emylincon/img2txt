@@ -43,9 +43,11 @@ class TestHotkeyManager:
         assert mgr is not None
 
     def test_available_with_pynput(self, qapp):
-        """available is True when pynput is installed."""
-        mgr = HotkeyManager()
-        assert mgr.available is True
+        """available is True when GlobalHotKeys loaded."""
+        sentinel = type("FakeGlobalHotKeys", (), {})
+        with patch("src.hotkey.GlobalHotKeys", sentinel):
+            mgr = HotkeyManager()
+            assert mgr.available is True
 
     def test_available_without_pynput(self, qapp):
         """available is False when pynput is missing."""
