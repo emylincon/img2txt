@@ -1,6 +1,7 @@
 """Tests for the main application module."""
 
 import pytest
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.main import MainWindow
@@ -43,3 +44,12 @@ class TestMainWindow:
         """Verify status bar is created."""
         window = MainWindow()
         assert window.statusBar() is not None
+
+    def test_close_event_hides_window(self, qapp):
+        """Closing the window hides it instead of quitting."""
+        window = MainWindow()
+        window.show()
+        event = QCloseEvent()
+        window.closeEvent(event)
+        assert event.isAccepted() is False
+        assert window.isVisible() is False
