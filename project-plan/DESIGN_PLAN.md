@@ -191,16 +191,16 @@ img2txt/
 
 ### Phase 1 — Core OCR (MVP)
 
-- [ ] Project scaffolding and dependency setup.
-- [ ] OCR engine wrapper (`ocr.py`).
-- [ ] File picker and basic preview window.
-- [ ] Copy to clipboard with sound feedback.
+- [x] Project scaffolding and dependency setup.
+- [x] OCR engine wrapper (`ocr.py`).
+- [x] File picker and basic preview window.
+- [x] Copy to clipboard with sound feedback.
 
 ### Phase 2 — Screenshot Capture
 
-- [ ] Full-screen screenshot via `mss`.
-- [ ] Translucent overlay with rectangle selection.
-- [ ] Pipe captured region into OCR and preview.
+- [x] Full-screen screenshot via `mss`.
+- [x] Translucent overlay with rectangle selection.
+- [x] Pipe captured region into OCR and preview.
 
 ### Phase 3 — System Tray and Global Hotkey
 
