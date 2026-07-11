@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import io
+import logging
+import platform
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from PIL import Image
 from PyQt6.QtCore import QObject, QRect, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QPixmap
+from PyQt6.QtGui import QAction, QCloseEvent, QCursor, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -25,6 +27,7 @@ from src.capture import (
     crop_region,
     take_screenshot,
 )
+from src.hotkey import HotkeyManager
 from src.ocr import (
     OCRError,
     TesseractMissingError,
@@ -33,6 +36,9 @@ from src.ocr import (
 from src.picker import open_image_dialog
 from src.preview import PreviewWidget
 from src.selector import SelectionOverlay
+from src.tray import TrayIcon
+
+logger = logging.getLogger(__name__)
 
 # Delay (ms) before capturing to let the window minimise.
 _CAPTURE_DELAY_MS = 500
@@ -94,7 +100,6 @@ class MainWindow(QMainWindow):
         file_menu.addAction(open_action)
 
         capture_action = QAction("&Capture Screen", self)
-        capture_action.setShortcut("Ctrl+Shift+T")
         capture_action.triggered.connect(self._capture_screen)
         file_menu.addAction(capture_action)
 
@@ -102,8 +107,17 @@ class MainWindow(QMainWindow):
 
         quit_action = QAction("&Quit", self)
         quit_action.setShortcut("Ctrl+Q")
-        quit_action.triggered.connect(self.close)
+        quit_action.triggered.connect(
+            QApplication.instance().quit  # type: ignore[union-attr]
+        )
         file_menu.addAction(quit_action)
+
+    def closeEvent(  # noqa: N802
+        self, event: QCloseEvent
+    ) -> None:
+        """Hide window instead of quitting."""
+        event.ignore()
+        self.hide()
 
     def _open_image(self) -> None:
         path = open_image_dialog(self)
@@ -142,8 +156,24 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(_CAPTURE_DELAY_MS, self._do_capture)
 
     def _do_capture(self) -> None:
+        # Determine which screen the cursor is on so we
+        # capture and overlay the correct monitor.
+        cursor_pos = QCursor.pos()
+        screen = QApplication.screenAt(cursor_pos)
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        self._capture_screen = screen
+
+        geom = screen.geometry()
+        region = (
+            geom.x(),
+            geom.y(),
+            geom.width(),
+            geom.height(),
+        )
+
         try:
-            screenshot = take_screenshot()
+            screenshot = take_screenshot(region)
         except ScreenRecordingPermissionError as exc:
             self.showNormal()
             self.activateWindow()
@@ -168,7 +198,7 @@ class MainWindow(QMainWindow):
         # Convert PIL Image to QPixmap for overlay
         qpixmap = _pil_to_qpixmap(screenshot)
 
-        self._overlay = SelectionOverlay(qpixmap)
+        self._overlay = SelectionOverlay(qpixmap, screen)
         self._overlay.region_selected.connect(self._on_region_selected)
         self._overlay.cancelled.connect(self._on_capture_cancelled)
         self._overlay.show()
@@ -176,7 +206,9 @@ class MainWindow(QMainWindow):
     def _on_region_selected(self, rect: QRect) -> None:
         # Scale selection from logical points to physical
         # pixels for HiDPI / Retina displays.
-        screen = QApplication.primaryScreen()
+        screen = getattr(self, "_capture_screen", None)
+        if screen is None:
+            screen = QApplication.primaryScreen()
         ratio = screen.devicePixelRatio() if screen else 1.0
         scaled_rect = QRect(
             int(rect.x() * ratio),
@@ -240,8 +272,38 @@ def main() -> None:
     """Launch the IMG2TXT application."""
     app = QApplication(sys.argv)
     app.setApplicationName("IMG2TXT")
+    app.setQuitOnLastWindowClosed(False)
 
     window = MainWindow()
+
+    # --- System tray ---
+    tray = TrayIcon()
+    tray.capture_triggered.connect(window._capture_screen)
+    tray.open_image_triggered.connect(window._open_image)
+    tray.show_window_triggered.connect(window.showNormal)
+    tray.show_window_triggered.connect(window.activateWindow)
+    tray.quit_triggered.connect(app.quit)
+    tray.show()
+
+    # --- Global hotkey ---
+    hotkey = HotkeyManager()
+    hotkey.hotkey_pressed.connect(window._capture_screen)
+
+    if not hotkey.start() and platform.system() == "Darwin":
+        QMessageBox.warning(
+            window,
+            "Accessibility Permission Required",
+            "IMG2TXT needs Accessibility permissions to "
+            "register a global hotkey.\n\n"
+            "Go to System Settings → Privacy & Security "
+            "→ Accessibility and grant access to this "
+            "application.\n\n"
+            "The tray menu will still work without the "
+            "hotkey.",
+        )
+
+    app.aboutToQuit.connect(hotkey.stop)
+
     window.show()
 
     sys.exit(app.exec())

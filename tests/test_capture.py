@@ -36,7 +36,7 @@ class TestTakeScreenshot:
         """Verify macOS path is used on Darwin."""
         mock_mac.return_value = Image.new("RGB", (100, 50), "red")
         result = take_screenshot()
-        mock_mac.assert_called_once()
+        mock_mac.assert_called_once_with(None)
         assert isinstance(result, Image.Image)
 
     @patch("src.capture._take_screenshot_mss")
@@ -48,7 +48,7 @@ class TestTakeScreenshot:
         """Verify mss fallback is used on non-Darwin."""
         mock_mss_fn.return_value = Image.new("RGB", (100, 50), "blue")
         result = take_screenshot()
-        mock_mss_fn.assert_called_once()
+        mock_mss_fn.assert_called_once_with(None)
         assert isinstance(result, Image.Image)
 
     @patch(

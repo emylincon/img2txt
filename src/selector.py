@@ -12,6 +12,7 @@ from PyQt6.QtGui import (
     QPen,
     QPixmap,
     QRegion,
+    QScreen,
 )
 from PyQt6.QtWidgets import QWidget
 
@@ -38,6 +39,7 @@ class SelectionOverlay(QWidget):
     def __init__(
         self,
         screenshot: QPixmap,
+        target_screen: QScreen | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -49,9 +51,13 @@ class SelectionOverlay(QWidget):
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
         )
-        self.setWindowState(Qt.WindowState.WindowFullScreen)
         self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
         self.setMouseTracking(True)
+
+        if target_screen is not None:
+            self.setGeometry(target_screen.geometry())
+        else:
+            self.setWindowState(Qt.WindowState.WindowFullScreen)
 
     def paintEvent(self, event: object) -> None:  # noqa: N802
         """Draw the screenshot with a dark overlay."""

@@ -30,14 +30,17 @@ _MACOS_PERMISSION_MSG = (
 )
 
 
-def take_screenshot() -> Image.Image:
-    """Capture the entire primary monitor.
+def take_screenshot(
+    region: tuple[int, int, int, int] | None = None,
+) -> Image.Image:
+    """Capture a screen region or the primary monitor.
 
-    On macOS, tries the native ``screencapture`` command
-    first, then falls back to ``mss``.  On other
-    platforms ``mss`` is used directly.
+    Args:
+        region: Optional ``(x, y, width, height)`` in
+            logical screen coordinates.  When *None* the
+            primary monitor is captured.
 
-    Returns a PIL Image of the full screen.
+    Returns a PIL Image of the captured area.
 
     Raises:
         ScreenRecordingPermissionError: If the OS
@@ -45,30 +48,34 @@ def take_screenshot() -> Image.Image:
     """
     if platform.system() == "Darwin":
         try:
-            return _take_screenshot_macos()
+            return _take_screenshot_macos(region)
         except (subprocess.CalledProcessError, OSError):
             pass
 
         try:
-            return _take_screenshot_mss()
+            return _take_screenshot_mss(region)
         except mss.exception.ScreenShotError as exc:
             raise ScreenRecordingPermissionError(
                 _MACOS_PERMISSION_MSG
             ) from exc
 
-    return _take_screenshot_mss()
+    return _take_screenshot_mss(region)
 
 
-def _take_screenshot_macos() -> Image.Image:
+def _take_screenshot_macos(
+    region: tuple[int, int, int, int] | None = None,
+) -> Image.Image:
     """Capture via macOS native screencapture."""
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
-        subprocess.run(
-            ["screencapture", "-x", tmp_path],
-            check=True,
-        )
+        cmd = ["screencapture", "-x"]
+        if region is not None:
+            x, y, w, h = region
+            cmd.extend(["-R", f"{x},{y},{w},{h}"])
+        cmd.append(tmp_path)
+        subprocess.run(cmd, check=True)
         img = Image.open(tmp_path)
         img.load()  # force read before file cleanup
         return img
@@ -76,10 +83,21 @@ def _take_screenshot_macos() -> Image.Image:
         Path(tmp_path).unlink(missing_ok=True)
 
 
-def _take_screenshot_mss() -> Image.Image:
+def _take_screenshot_mss(
+    region: tuple[int, int, int, int] | None = None,
+) -> Image.Image:
     """Capture via mss (cross-platform fallback)."""
     with mss.mss() as sct:
-        monitor = sct.monitors[1]  # primary monitor
+        if region is not None:
+            x, y, w, h = region
+            monitor = {
+                "left": x,
+                "top": y,
+                "width": w,
+                "height": h,
+            }
+        else:
+            monitor = sct.monitors[1]  # primary monitor
         shot = sct.grab(monitor)
         return Image.frombytes(
             "RGB",
