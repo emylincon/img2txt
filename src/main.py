@@ -34,6 +34,18 @@ from src.picker import open_image_dialog
 from src.preview import PreviewWidget
 from src.selector import SelectionOverlay
 
+# Delay (ms) before capturing to let the window minimise.
+_CAPTURE_DELAY_MS = 500
+
+
+def _pil_to_qpixmap(image: Image.Image) -> QPixmap:
+    """Convert a PIL Image to a QPixmap."""
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    qpixmap = QPixmap()
+    qpixmap.loadFromData(buf.getvalue())
+    return qpixmap
+
 
 class _OCRSignals(QObject):
     """Signals for OCR background task."""
@@ -53,6 +65,8 @@ class MainWindow(QMainWindow):
         self._ocr_signals = _OCRSignals()
         self._ocr_signals.finished.connect(self._on_ocr_done)
         self._ocr_signals.error.connect(self._on_ocr_error)
+        self._screenshot_image: Image.Image | None = None
+        self._overlay: SelectionOverlay | None = None
         self._setup_ui()
         self._setup_menu()
 
@@ -80,7 +94,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(open_action)
 
         capture_action = QAction("&Capture Screen", self)
-        capture_action.setShortcut("Ctrl+Shift+X")
+        capture_action.setShortcut("Ctrl+Shift+T")
         capture_action.triggered.connect(self._capture_screen)
         file_menu.addAction(capture_action)
 
@@ -125,7 +139,7 @@ class MainWindow(QMainWindow):
 
     def _capture_screen(self) -> None:
         self.showMinimized()
-        QTimer.singleShot(500, self._do_capture)
+        QTimer.singleShot(_CAPTURE_DELAY_MS, self._do_capture)
 
     def _do_capture(self) -> None:
         try:
@@ -152,11 +166,7 @@ class MainWindow(QMainWindow):
         self._screenshot_image = screenshot
 
         # Convert PIL Image to QPixmap for overlay
-        buf = io.BytesIO()
-        screenshot.save(buf, format="PNG")
-        buf.seek(0)
-        qpixmap = QPixmap()
-        qpixmap.loadFromData(buf.read())
+        qpixmap = _pil_to_qpixmap(screenshot)
 
         self._overlay = SelectionOverlay(qpixmap)
         self._overlay.region_selected.connect(self._on_region_selected)
@@ -177,11 +187,7 @@ class MainWindow(QMainWindow):
         cropped = crop_region(self._screenshot_image, scaled_rect)
 
         # Convert cropped PIL Image to QPixmap
-        buf = io.BytesIO()
-        cropped.save(buf, format="PNG")
-        buf.seek(0)
-        qpixmap = QPixmap()
-        qpixmap.loadFromData(buf.read())
+        qpixmap = _pil_to_qpixmap(cropped)
 
         self.showNormal()
         self.activateWindow()

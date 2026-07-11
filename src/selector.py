@@ -109,7 +109,7 @@ class SelectionOverlay(QWidget):
             rect = QRect(self._origin, self._current).normalized()
             self.close()
 
-            if rect.width() > 2 and rect.height() > 2:
+            if rect.width() > 10 and rect.height() > 10:
                 self.region_selected.emit(rect)
             else:
                 self.cancelled.emit()

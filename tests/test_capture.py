@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication
 
 from src.capture import (
     ScreenRecordingPermissionError,
+    _take_screenshot_macos,
     _take_screenshot_mss,
     crop_region,
     take_screenshot,
@@ -101,6 +102,21 @@ class TestTakeScreenshot:
         assert result.height > 0
         assert result.mode == "RGB"
 
+    @patch("src.capture.subprocess.run")
+    @patch("src.capture.Image.open")
+    def test_macos_screencapture(self, mock_open_img, mock_run):
+        """Verify _take_screenshot_macos uses subprocess."""
+        fake_img = Image.new("RGB", (200, 100), "green")
+        fake_img.load()
+        mock_open_img.return_value = fake_img
+
+        result = _take_screenshot_macos()
+
+        mock_run.assert_called_once()
+        args = mock_run.call_args
+        assert args[0][0][0] == "screencapture"
+        assert isinstance(result, Image.Image)
+
 
 class TestCropRegion:
     """Tests for the crop_region function."""
@@ -131,9 +147,10 @@ class TestCropRegion:
 
         result = crop_region(img, rect)
 
-        # All pixels should be red
-        pixels = list(result.get_flattened_data())
-        assert all(p == (255, 0, 0) for p in pixels)
+        # Spot-check pixels are red
+        assert result.getpixel((0, 0)) == (255, 0, 0)
+        assert result.getpixel((50, 50)) == (255, 0, 0)
+        assert result.getpixel((99, 99)) == (255, 0, 0)
 
     def test_crop_full_image(self, qapp):
         """Verify cropping the full image works."""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import platform
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import mss
@@ -63,13 +64,16 @@ def _take_screenshot_macos() -> Image.Image:
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
         tmp_path = tmp.name
 
-    subprocess.run(
-        ["screencapture", "-x", tmp_path],
-        check=True,
-    )
-    img = Image.open(tmp_path)
-    img.load()  # force read before file cleanup
-    return img
+    try:
+        subprocess.run(
+            ["screencapture", "-x", tmp_path],
+            check=True,
+        )
+        img = Image.open(tmp_path)
+        img.load()  # force read before file cleanup
+        return img
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 def _take_screenshot_mss() -> Image.Image:
