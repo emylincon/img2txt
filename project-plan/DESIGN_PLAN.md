@@ -204,9 +204,9 @@ img2txt/
 
 ### Phase 3 — System Tray and Global Hotkey
 
-- [ ] System tray icon with context menu.
-- [ ] Global hotkey registration.
-- [ ] Background process lifecycle management.
+- [x] System tray icon with context menu.
+- [x] Global hotkey registration.
+- [x] Background process lifecycle management.
 
 ### Phase 4 — Polish and Packaging
 
