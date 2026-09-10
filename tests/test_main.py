@@ -53,3 +53,35 @@ class TestMainWindow:
         window.closeEvent(event)
         assert event.isAccepted() is False
         assert window.isVisible() is False
+
+    def test_layout_mode_default_false(self, qapp):
+        """Preserve Layout is off by default."""
+        window = MainWindow()
+        assert window._preserve_layout is False
+        assert window.layout_action.isChecked() is False
+
+    def test_preserve_layout_menu_action_exists(self, qapp):
+        """File menu contains the Preserve Layout action."""
+        window = MainWindow()
+        file_menu = window.menuBar().actions()[0].menu()
+        texts = [a.text() for a in file_menu.actions() if not a.isSeparator()]
+        assert "Preserve &Layout" in texts
+
+    def test_toggle_layout_mode_updates_state(self, qapp):
+        """Toggling the action updates _preserve_layout and emits signal."""
+        window = MainWindow()
+        received = []
+        window.layout_mode_changed.connect(received.append)
+        window.layout_action.trigger()
+        assert window._preserve_layout is True
+        assert received == [True]
+
+    def test_set_layout_mode_syncs_without_signal(self, qapp):
+        """_set_layout_mode updates state without re-emitting."""
+        window = MainWindow()
+        received = []
+        window.layout_mode_changed.connect(received.append)
+        window._set_layout_mode(True)
+        assert window._preserve_layout is True
+        assert window.layout_action.isChecked() is True
+        assert received == []

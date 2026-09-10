@@ -45,6 +45,37 @@ class TestTrayIcon:
         assert hasattr(tray, "open_image_triggered")
         assert hasattr(tray, "show_window_triggered")
         assert hasattr(tray, "quit_triggered")
+        assert hasattr(tray, "layout_mode_toggled")
+
+    def test_preserve_layout_action_exists(self, qapp):
+        """Context menu contains the Preserve Layout action."""
+        tray = TrayIcon()
+        menu = tray.contextMenu()
+        texts = [a.text() for a in menu.actions() if not a.isSeparator()]
+        assert "Preserve Layout" in texts
+
+    def test_preserve_layout_action_checkable(self, qapp):
+        """Preserve Layout action is checkable and off by default."""
+        tray = TrayIcon()
+        assert tray.layout_action.isCheckable()
+        assert tray.layout_action.isChecked() is False
+
+    def test_layout_mode_signal_emitted(self, qapp):
+        """Toggling the action emits layout_mode_toggled."""
+        tray = TrayIcon()
+        received = []
+        tray.layout_mode_toggled.connect(received.append)
+        tray.layout_action.trigger()
+        assert received == [True]
+
+    def test_set_layout_mode_syncs_without_signal(self, qapp):
+        """set_layout_mode updates check state without emitting."""
+        tray = TrayIcon()
+        received = []
+        tray.layout_mode_toggled.connect(received.append)
+        tray.set_layout_mode(True)
+        assert tray.layout_action.isChecked() is True
+        assert received == []
 
     def test_capture_signal_emitted(self, qapp):
         """Capture Screen action emits capture_triggered."""
