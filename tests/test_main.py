@@ -53,35 +53,3 @@ class TestMainWindow:
         window.closeEvent(event)
         assert event.isAccepted() is False
         assert window.isVisible() is False
-
-    def test_code_mode_default_false(self, qapp):
-        """Code Mode is off by default."""
-        window = MainWindow()
-        assert window._code_mode is False
-        assert window.code_mode_action.isChecked() is False
-
-    def test_code_mode_menu_action_exists(self, qapp):
-        """File menu contains the Code Mode action."""
-        window = MainWindow()
-        file_menu = window.menuBar().actions()[0].menu()
-        texts = [a.text() for a in file_menu.actions() if not a.isSeparator()]
-        assert "&Code Mode" in texts
-
-    def test_toggle_code_mode_updates_state(self, qapp):
-        """Toggling the action updates _code_mode and emits signal."""
-        window = MainWindow()
-        received = []
-        window.code_mode_changed.connect(received.append)
-        window.code_mode_action.trigger()
-        assert window._code_mode is True
-        assert received == [True]
-
-    def test_set_code_mode_syncs_without_signal(self, qapp):
-        """_set_code_mode updates state without re-emitting."""
-        window = MainWindow()
-        received = []
-        window.code_mode_changed.connect(received.append)
-        window._set_code_mode(True)
-        assert window._code_mode is True
-        assert window.code_mode_action.isChecked() is True
-        assert received == []

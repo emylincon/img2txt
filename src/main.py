@@ -63,8 +63,6 @@ class _OCRSignals(QObject):
 class MainWindow(QMainWindow):
     """Main application window."""
 
-    code_mode_changed = pyqtSignal(bool)
-
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("IMG2TXT")
@@ -75,7 +73,6 @@ class MainWindow(QMainWindow):
         self._ocr_signals.error.connect(self._on_ocr_error)
         self._screenshot_image: Image.Image | None = None
         self._overlay: SelectionOverlay | None = None
-        self._code_mode = False
         self._setup_ui()
         self._setup_menu()
 
@@ -105,11 +102,6 @@ class MainWindow(QMainWindow):
         capture_action = QAction("&Capture Screen", self)
         capture_action.triggered.connect(self._capture_screen)
         file_menu.addAction(capture_action)
-
-        self.code_mode_action = QAction("&Code Mode", self)
-        self.code_mode_action.setCheckable(True)
-        self.code_mode_action.toggled.connect(self._toggle_code_mode)
-        file_menu.addAction(self.code_mode_action)
 
         file_menu.addSeparator()
 
@@ -242,24 +234,9 @@ class MainWindow(QMainWindow):
         self.showNormal()
         self.activateWindow()
 
-    def _toggle_code_mode(self, checked: bool) -> None:
-        self._code_mode = checked
-        self.code_mode_changed.emit(checked)
-
-    def _set_code_mode(self, checked: bool) -> None:
-        """Sync Code Mode from an external source (e.g. tray)."""
-        self._code_mode = checked
-        if self.code_mode_action.isChecked() != checked:
-            self.code_mode_action.blockSignals(True)
-            self.code_mode_action.setChecked(checked)
-            self.code_mode_action.blockSignals(False)
-
     def _run_ocr(self, image: Image.Image) -> None:
         try:
-            text = extract_text(
-                image,
-                code_mode=self._code_mode,
-            )
+            text = extract_text(image)
         except TesseractMissingError as exc:
             self._ocr_signals.error.emit(str(exc))
         except OCRError as exc:
@@ -270,7 +247,6 @@ class MainWindow(QMainWindow):
             self._ocr_signals.finished.emit(text)
 
     def _on_ocr_done(self, text: str) -> None:
-        self.preview.set_monospace(self._code_mode)
         if text:
             self.preview.set_text(text)
             self.status_label.setText("Text extracted successfully.")
@@ -307,8 +283,6 @@ def main() -> None:
     tray.show_window_triggered.connect(window.showNormal)
     tray.show_window_triggered.connect(window.activateWindow)
     tray.quit_triggered.connect(app.quit)
-    tray.code_mode_toggled.connect(window._set_code_mode)
-    window.code_mode_changed.connect(tray.set_code_mode)
     tray.show()
 
     # --- Global hotkey ---
