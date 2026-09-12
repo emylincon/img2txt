@@ -19,14 +19,12 @@ class TrayIcon(QSystemTrayIcon):
         open_image_triggered: User clicked Open Image.
         show_window_triggered: User clicked Show Window.
         quit_triggered: User clicked Quit.
-        layout_mode_toggled: User toggled Preserve Layout.
     """
 
     capture_triggered = pyqtSignal()
     open_image_triggered = pyqtSignal()
     show_window_triggered = pyqtSignal()
     quit_triggered = pyqtSignal()
-    layout_mode_toggled = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -47,11 +45,6 @@ class TrayIcon(QSystemTrayIcon):
         open_action.triggered.connect(self.open_image_triggered)
         menu.addAction(open_action)
 
-        self.layout_action = QAction("Preserve Layout", menu)
-        self.layout_action.setCheckable(True)
-        self.layout_action.toggled.connect(self.layout_mode_toggled)
-        menu.addAction(self.layout_action)
-
         menu.addSeparator()
 
         show_action = QAction("Show Window", menu)
@@ -63,13 +56,6 @@ class TrayIcon(QSystemTrayIcon):
         menu.addAction(quit_action)
 
         self.setContextMenu(menu)
-
-    def set_layout_mode(self, checked: bool) -> None:
-        """Sync the Preserve Layout checkbox without re-emitting."""
-        if self.layout_action.isChecked() != checked:
-            self.layout_action.blockSignals(True)
-            self.layout_action.setChecked(checked)
-            self.layout_action.blockSignals(False)
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         """Toggle main window on double-click / trigger."""
