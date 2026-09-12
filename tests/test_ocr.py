@@ -224,3 +224,52 @@ class TestExtractTextPreserveLayout:
         assert not lines[0].startswith(" ")
         indent = len(lines[1]) - len(lines[1].lstrip())
         assert indent == 2
+
+    @patch("src.ocr.pytesseract.image_to_data")
+    def test_max_indent_increase_clamped(self, mock_data):
+        """Indent can increase by at most indent_width per line."""
+        # char_width = 10.  After baseline subtraction:
+        # Line 1: left=0 → 0 → snap(0,2) = 0
+        # Line 2: left=60 → 6 → snap(6,2) = 6, but clamped to 0+2 = 2
+        # Line 3: left=60 → 6 → snap(6,2) = 6, but clamped to 2+2 = 4
+        mock_data.return_value = {
+            "block_num": [1, 1, 1],
+            "par_num": [1, 1, 1],
+            "line_num": [1, 2, 3],
+            "left": [0, 60, 60],
+            "width": [30, 30, 30],
+            "text": ["aaa", "bbb", "ccc"],
+            "conf": [95, 95, 95],
+        }
+        img = Image.new("RGB", (200, 100), "white")
+        result = extract_text(img, preserve_layout=True)
+        lines = result.split("\n")
+        indent_0 = len(lines[0]) - len(lines[0].lstrip())
+        indent_1 = len(lines[1]) - len(lines[1].lstrip())
+        indent_2 = len(lines[2]) - len(lines[2].lstrip())
+        assert indent_0 == 0
+        assert indent_1 == 2
+        assert indent_2 == 4
+
+    @patch("src.ocr.pytesseract.image_to_data")
+    def test_indent_decrease_unrestricted(self, mock_data):
+        """Indent can decrease by any amount."""
+        # char_width = 10.  After baseline subtraction:
+        # Line 1: left=0 → 0
+        # Line 2: left=20 → 2 → clamped to min(2, 0+2) = 2
+        # Line 3: left=40 → 4 → clamped to min(4, 2+2) = 4
+        # Line 4: left=0 → 0 → decrease, no clamping
+        mock_data.return_value = {
+            "block_num": [1, 1, 1, 1],
+            "par_num": [1, 1, 1, 1],
+            "line_num": [1, 2, 3, 4],
+            "left": [0, 20, 40, 0],
+            "width": [30, 30, 30, 30],
+            "text": ["aaa", "bbb", "ccc", "ddd"],
+            "conf": [95, 95, 95, 95],
+        }
+        img = Image.new("RGB", (200, 100), "white")
+        result = extract_text(img, preserve_layout=True)
+        lines = result.split("\n")
+        indent_3 = len(lines[3]) - len(lines[3].lstrip())
+        assert indent_3 == 0

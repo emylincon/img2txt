@@ -105,7 +105,7 @@ def _reconstruct_layout(
 ) -> str:
     """Rebuild indentation and spacing from OCR word boxes.
 
-    The algorithm normalises leading whitespace in two
+    The algorithm normalises leading whitespace in three
     steps:
 
     1. **Baseline subtraction** — the smallest ``left``
@@ -114,6 +114,9 @@ def _reconstruct_layout(
     2. **Snap to grid** — the resulting leading-space
        count is rounded to the nearest multiple of
        *indent_width* so indentation is always clean.
+    3. **Max-increase clamp** — a line's indentation may
+       increase by at most *indent_width* spaces relative
+       to the previous line.  Decreases are unrestricted.
 
     Args:
         data: The dict returned by
@@ -165,6 +168,7 @@ def _reconstruct_layout(
     min_left = min(lw[0]["left"] for lw in lines.values())
 
     rendered_lines = []
+    prev_indent = 0
     for key in sorted(lines):
         line_words = lines[key]
         parts: list[str] = []
@@ -178,6 +182,12 @@ def _reconstruct_layout(
                     raw,
                     indent_width,
                 )
+                # Clamp increases: indent may grow by at
+                # most one indent_width per line.
+                max_indent = prev_indent + indent_width
+                if leading > max_indent:
+                    leading = max_indent
+                prev_indent = leading
                 parts.append(" " * leading)
             else:
                 gap = round(
