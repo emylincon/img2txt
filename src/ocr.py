@@ -19,27 +19,19 @@ class TesseractMissingError(OCRError):
     """Raised when Tesseract is not installed."""
 
 
-# Number of characters a pixel gap must span before it is
-# rendered as a single tab in Code Mode output. E.g. with
-# the default of 2, a gap of 5 characters becomes 3 tabs
-# (round(5 / 2)).
-CHARS_PER_TAB = 2
-
-
 def extract_text(
     image: Image.Image,
     *,
-    code_mode: bool = False,
+    preserve_layout: bool = False,
 ) -> str:
     """Run Tesseract OCR on a PIL Image.
 
     Args:
         image: A PIL Image to extract text from.
-        code_mode: When True, reconstruct spacing and
-            indentation from word bounding boxes using
-            tab characters instead of returning
-            Tesseract's collapsed text. Useful for code
-            or terminal output.
+        preserve_layout: When True, reconstruct spacing
+            and indentation from word bounding boxes
+            instead of returning Tesseract's collapsed
+            text. Useful for code or terminal output.
 
     Returns:
         The extracted text string, stripped of
@@ -57,12 +49,12 @@ def extract_text(
         raise TypeError(msg)
 
     try:
-        if code_mode:
+        if preserve_layout:
             data = pytesseract.image_to_data(
                 image,
                 output_type=pytesseract.Output.DICT,
             )
-            text = _reconstruct_code_layout(data)
+            text = _reconstruct_layout(data)
         else:
             text = pytesseract.image_to_string(image)
     except TesseractNotFoundError as exc:
@@ -82,13 +74,8 @@ def extract_text(
     return text.strip()
 
 
-def _reconstruct_code_layout(data: dict) -> str:
+def _reconstruct_layout(data: dict) -> str:
     """Rebuild indentation and spacing from OCR word boxes.
-
-    Only the leading indentation at the start of each line
-    is rendered as tab characters, sized by
-    ``CHARS_PER_TAB``. Inter-word gaps within a line are
-    rendered as spaces.
 
     Args:
         data: The dict returned by
@@ -96,9 +83,8 @@ def _reconstruct_code_layout(data: dict) -> str:
             ``output_type=Output.DICT``.
 
     Returns:
-        Text with leading indentation rendered as tabs
-        and inter-word gaps rendered as spaces,
-        approximated from pixel positions.
+        Text with leading indentation and inter-word
+        gaps approximated from pixel positions.
     """
     n = len(data.get("text", []))
     words = []
@@ -122,13 +108,11 @@ def _reconstruct_code_layout(data: dict) -> str:
         return ""
 
     # Estimate the average pixel width of a single
-    # character, used to convert pixel gaps to tabs.
+    # character, used to convert pixel gaps to spaces.
     char_widths = [w["width"] / len(w["text"]) for w in words if w["text"]]
     char_width = sum(char_widths) / len(char_widths)
     if char_width <= 0:
         char_width = 1.0
-
-    tab_width = char_width * CHARS_PER_TAB
 
     lines: dict[tuple[int, int, int], list[dict]] = {}
     for w in words:
@@ -142,8 +126,8 @@ def _reconstruct_code_layout(data: dict) -> str:
         prev_right = None
         for w in line_words:
             if prev_right is None:
-                leading = round(w["left"] / tab_width)
-                parts.append("\t" * max(leading, 0))
+                leading = round(w["left"] / char_width)
+                parts.append(" " * max(leading, 0))
             else:
                 gap = round((w["left"] - prev_right) / char_width)
                 parts.append(" " * max(gap, 1))
