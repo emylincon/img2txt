@@ -74,7 +74,7 @@ class TestExtractText:
 
 
 class TestExtractTextPreserveLayout:
-    """Tests for the preserve_layout OCR path."""
+    """Tests for the code_mode OCR path."""
 
     _SAMPLE_DATA = {
         "block_num": [1, 1, 1],
@@ -88,43 +88,44 @@ class TestExtractTextPreserveLayout:
 
     @patch("src.ocr.pytesseract.image_to_data")
     def test_calls_image_to_data(self, mock_data):
-        """preserve_layout=True should call image_to_data."""
+        """code_mode=True should call image_to_data."""
         mock_data.return_value = self._SAMPLE_DATA
         img = Image.new("RGB", (200, 100), "white")
-        result = extract_text(img, preserve_layout=True)
+        result = extract_text(img, code_mode=True)
         mock_data.assert_called_once()
         assert "def" in result
         assert "pass" in result
 
     @patch("src.ocr.pytesseract.image_to_data")
     def test_indentation_from_left_offset(self, mock_data):
-        """Leading spaces reflect the word's left pixel offset."""
+        """Leading tabs reflect the word's left pixel offset."""
         mock_data.return_value = self._SAMPLE_DATA
         img = Image.new("RGB", (200, 100), "white")
-        result = extract_text(img, preserve_layout=True)
+        result = extract_text(img, code_mode=True)
         lines = result.split("\n")
         # Second line's word starts at left=20, first line at left=0.
-        assert lines[1].startswith(" ")
-        assert not lines[0].startswith(" ")
+        assert lines[1].startswith("\t")
+        assert not lines[0].startswith("\t")
 
     @patch("src.ocr.pytesseract.image_to_data")
     def test_inter_word_gap(self, mock_data):
-        """Multiple spaces appear between far-apart words."""
+        """Spaces (not tabs) appear between far-apart words."""
         mock_data.return_value = self._SAMPLE_DATA
         img = Image.new("RGB", (200, 100), "white")
-        result = extract_text(img, preserve_layout=True)
+        result = extract_text(img, code_mode=True)
         first_line = result.split("\n")[0]
         assert "def" in first_line
         assert "foo():" in first_line
         gap = first_line[len("def") : first_line.index("foo():")]
-        assert len(gap) > 1
+        assert gap == " " * len(gap)
+        assert len(gap) >= 1
 
     @patch("src.ocr.pytesseract.image_to_data")
     def test_multiline_output(self, mock_data):
         """Lines are separated by newlines."""
         mock_data.return_value = self._SAMPLE_DATA
         img = Image.new("RGB", (200, 100), "white")
-        result = extract_text(img, preserve_layout=True)
+        result = extract_text(img, code_mode=True)
         assert len(result.split("\n")) == 2
 
     @patch("src.ocr.pytesseract.image_to_data")
@@ -140,7 +141,7 @@ class TestExtractTextPreserveLayout:
             "conf": [],
         }
         img = Image.new("RGB", (100, 100), "white")
-        result = extract_text(img, preserve_layout=True)
+        result = extract_text(img, code_mode=True)
         assert result == ""
 
     @patch(
@@ -148,8 +149,8 @@ class TestExtractTextPreserveLayout:
         return_value="Hello World\n",
     )
     def test_plain_mode_unchanged(self, mock_ocr):
-        """preserve_layout=False keeps calling image_to_string."""
+        """code_mode=False keeps calling image_to_string."""
         img = _make_text_image("Hello")
-        result = extract_text(img, preserve_layout=False)
+        result = extract_text(img, code_mode=False)
         assert result == "Hello World"
         mock_ocr.assert_called_once_with(img)

@@ -19,14 +19,14 @@ class TrayIcon(QSystemTrayIcon):
         open_image_triggered: User clicked Open Image.
         show_window_triggered: User clicked Show Window.
         quit_triggered: User clicked Quit.
-        layout_mode_toggled: User toggled Preserve Layout.
+        code_mode_toggled: User toggled Code Mode.
     """
 
     capture_triggered = pyqtSignal()
     open_image_triggered = pyqtSignal()
     show_window_triggered = pyqtSignal()
     quit_triggered = pyqtSignal()
-    layout_mode_toggled = pyqtSignal(bool)
+    code_mode_toggled = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -47,10 +47,10 @@ class TrayIcon(QSystemTrayIcon):
         open_action.triggered.connect(self.open_image_triggered)
         menu.addAction(open_action)
 
-        self.layout_action = QAction("Preserve Layout", menu)
-        self.layout_action.setCheckable(True)
-        self.layout_action.toggled.connect(self.layout_mode_toggled)
-        menu.addAction(self.layout_action)
+        self.code_mode_action = QAction("Code Mode", menu)
+        self.code_mode_action.setCheckable(True)
+        self.code_mode_action.toggled.connect(self.code_mode_toggled)
+        menu.addAction(self.code_mode_action)
 
         menu.addSeparator()
 
@@ -64,12 +64,12 @@ class TrayIcon(QSystemTrayIcon):
 
         self.setContextMenu(menu)
 
-    def set_layout_mode(self, checked: bool) -> None:
-        """Sync the Preserve Layout checkbox without re-emitting."""
-        if self.layout_action.isChecked() != checked:
-            self.layout_action.blockSignals(True)
-            self.layout_action.setChecked(checked)
-            self.layout_action.blockSignals(False)
+    def set_code_mode(self, checked: bool) -> None:
+        """Sync the Code Mode checkbox without re-emitting."""
+        if self.code_mode_action.isChecked() != checked:
+            self.code_mode_action.blockSignals(True)
+            self.code_mode_action.setChecked(checked)
+            self.code_mode_action.blockSignals(False)
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         """Toggle main window on double-click / trigger."""

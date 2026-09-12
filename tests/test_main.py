@@ -54,34 +54,34 @@ class TestMainWindow:
         assert event.isAccepted() is False
         assert window.isVisible() is False
 
-    def test_layout_mode_default_false(self, qapp):
-        """Preserve Layout is off by default."""
+    def test_code_mode_default_false(self, qapp):
+        """Code Mode is off by default."""
         window = MainWindow()
-        assert window._preserve_layout is False
-        assert window.layout_action.isChecked() is False
+        assert window._code_mode is False
+        assert window.code_mode_action.isChecked() is False
 
-    def test_preserve_layout_menu_action_exists(self, qapp):
-        """File menu contains the Preserve Layout action."""
+    def test_code_mode_menu_action_exists(self, qapp):
+        """File menu contains the Code Mode action."""
         window = MainWindow()
         file_menu = window.menuBar().actions()[0].menu()
         texts = [a.text() for a in file_menu.actions() if not a.isSeparator()]
-        assert "Preserve &Layout" in texts
+        assert "&Code Mode" in texts
 
-    def test_toggle_layout_mode_updates_state(self, qapp):
-        """Toggling the action updates _preserve_layout and emits signal."""
+    def test_toggle_code_mode_updates_state(self, qapp):
+        """Toggling the action updates _code_mode and emits signal."""
         window = MainWindow()
         received = []
-        window.layout_mode_changed.connect(received.append)
-        window.layout_action.trigger()
-        assert window._preserve_layout is True
+        window.code_mode_changed.connect(received.append)
+        window.code_mode_action.trigger()
+        assert window._code_mode is True
         assert received == [True]
 
-    def test_set_layout_mode_syncs_without_signal(self, qapp):
-        """_set_layout_mode updates state without re-emitting."""
+    def test_set_code_mode_syncs_without_signal(self, qapp):
+        """_set_code_mode updates state without re-emitting."""
         window = MainWindow()
         received = []
-        window.layout_mode_changed.connect(received.append)
-        window._set_layout_mode(True)
-        assert window._preserve_layout is True
-        assert window.layout_action.isChecked() is True
+        window.code_mode_changed.connect(received.append)
+        window._set_code_mode(True)
+        assert window._code_mode is True
+        assert window.code_mode_action.isChecked() is True
         assert received == []
