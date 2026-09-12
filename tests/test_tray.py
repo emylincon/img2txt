@@ -100,3 +100,43 @@ class TestTrayIcon:
                 action.trigger()
                 break
         assert received == [True]
+
+    def test_indent_width_submenu_exists(self, qapp):
+        """Context menu contains the Indent Width submenu."""
+        tray = TrayIcon()
+        menu = tray.contextMenu()
+        sub_menus = [a.text() for a in menu.actions() if a.menu() is not None]
+        assert "Indent Width" in sub_menus
+
+    def test_indent_width_submenu_disabled_by_default(self, qapp):
+        """Indent Width submenu is disabled when layout is off."""
+        tray = TrayIcon()
+        assert tray.indent_menu.isEnabled() is False
+
+    def test_indent_width_submenu_enabled_with_layout(self, qapp):
+        """Indent Width submenu enables when layout is on."""
+        tray = TrayIcon()
+        tray.layout_action.setChecked(True)
+        assert tray.indent_menu.isEnabled() is True
+
+    def test_indent_width_default_checked(self, qapp):
+        """Default indent width (2) is checked."""
+        tray = TrayIcon()
+        assert tray._indent_actions[2].isChecked()
+
+    def test_indent_width_signal_emitted(self, qapp):
+        """Selecting an indent width emits indent_width_changed."""
+        tray = TrayIcon()
+        received = []
+        tray.indent_width_changed.connect(received.append)
+        tray._indent_actions[4].trigger()
+        assert received == [4]
+
+    def test_set_indent_width_syncs_without_signal(self, qapp):
+        """set_indent_width updates check state without emitting."""
+        tray = TrayIcon()
+        received = []
+        tray.indent_width_changed.connect(received.append)
+        tray.set_indent_width(8)
+        assert tray._indent_actions[8].isChecked() is True
+        assert received == []

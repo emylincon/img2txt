@@ -103,9 +103,11 @@ class TestExtractTextPreserveLayout:
         img = Image.new("RGB", (200, 100), "white")
         result = extract_text(img, preserve_layout=True)
         lines = result.split("\n")
-        # Second line's word starts at left=20, first line at left=0.
-        assert lines[1].startswith(" ")
+        # First line starts at left=0 (baseline), so no indent.
         assert not lines[0].startswith(" ")
+        # Second line starts at left=20, snapped to nearest
+        # multiple of 2 — should have some leading spaces.
+        assert lines[1].startswith(" ")
 
     @patch("src.ocr.pytesseract.image_to_data")
     def test_inter_word_gap(self, mock_data):
@@ -153,3 +155,72 @@ class TestExtractTextPreserveLayout:
         result = extract_text(img, preserve_layout=False)
         assert result == "Hello World"
         mock_ocr.assert_called_once_with(img)
+
+    @patch("src.ocr.pytesseract.image_to_data")
+    def test_indent_width_default_snaps_to_2(self, mock_data):
+        """Default indent_width=2 snaps leading spaces to multiples of 2."""
+        # char_width will be 10 (width=30, len=3 for each word).
+        # Line 2: left=15 → raw = round((15-0)/10) = 2 → snap(2,2)=2
+        mock_data.return_value = {
+            "block_num": [1, 1],
+            "par_num": [1, 1],
+            "line_num": [1, 2],
+            "left": [0, 15],
+            "width": [30, 30],
+            "text": ["aaa", "bbb"],
+            "conf": [95, 95],
+        }
+        img = Image.new("RGB", (200, 100), "white")
+        result = extract_text(img, preserve_layout=True)
+        lines = result.split("\n")
+        indent = len(lines[1]) - len(lines[1].lstrip())
+        assert indent % 2 == 0
+
+    @patch("src.ocr.pytesseract.image_to_data")
+    def test_indent_width_4(self, mock_data):
+        """indent_width=4 snaps leading spaces to multiples of 4."""
+        # char_width = 10.  Line 2: left=25 → raw = round(25/10) = 2
+        # snap(2, 4) = 0.  Line 3: left=45 → raw = round(45/10) = 4
+        # snap(4, 4) = 4.
+        mock_data.return_value = {
+            "block_num": [1, 1, 1],
+            "par_num": [1, 1, 1],
+            "line_num": [1, 2, 3],
+            "left": [0, 25, 45],
+            "width": [30, 30, 30],
+            "text": ["aaa", "bbb", "ccc"],
+            "conf": [95, 95, 95],
+        }
+        img = Image.new("RGB", (200, 100), "white")
+        result = extract_text(
+            img,
+            preserve_layout=True,
+            indent_width=4,
+        )
+        lines = result.split("\n")
+        for line in lines:
+            indent = len(line) - len(line.lstrip())
+            assert indent % 4 == 0
+
+    @patch("src.ocr.pytesseract.image_to_data")
+    def test_baseline_subtraction(self, mock_data):
+        """All lines shifted by image left margin still align."""
+        # All left values offset by 50 (simulating image margin).
+        # char_width = 10.
+        # Line 1: left=50 → (50-50)/10 = 0 → snap(0,2) = 0
+        # Line 2: left=70 → (70-50)/10 = 2 → snap(2,2) = 2
+        mock_data.return_value = {
+            "block_num": [1, 1],
+            "par_num": [1, 1],
+            "line_num": [1, 2],
+            "left": [50, 70],
+            "width": [30, 30],
+            "text": ["aaa", "bbb"],
+            "conf": [95, 95],
+        }
+        img = Image.new("RGB", (200, 100), "white")
+        result = extract_text(img, preserve_layout=True)
+        lines = result.split("\n")
+        assert not lines[0].startswith(" ")
+        indent = len(lines[1]) - len(lines[1].lstrip())
+        assert indent == 2

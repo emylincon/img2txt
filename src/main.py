@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PIL import Image
 from PyQt6.QtCore import QObject, QRect, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QCloseEvent, QCursor, QPixmap
+from PyQt6.QtGui import QAction, QActionGroup, QCloseEvent, QCursor, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -36,7 +36,11 @@ from src.ocr import (
 from src.picker import open_image_dialog
 from src.preview import PreviewWidget
 from src.selector import SelectionOverlay
-from src.tray import TrayIcon
+from src.tray import (
+    DEFAULT_INDENT_WIDTH,
+    INDENT_WIDTH_OPTIONS,
+    TrayIcon,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,7 @@ class MainWindow(QMainWindow):
     """Main application window."""
 
     layout_mode_changed = pyqtSignal(bool)
+    indent_width_changed = pyqtSignal(int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -76,6 +81,7 @@ class MainWindow(QMainWindow):
         self._screenshot_image: Image.Image | None = None
         self._overlay: SelectionOverlay | None = None
         self._preserve_layout = False
+        self._indent_width = DEFAULT_INDENT_WIDTH
         self._setup_ui()
         self._setup_menu()
 
@@ -110,6 +116,31 @@ class MainWindow(QMainWindow):
         self.layout_action.setCheckable(True)
         self.layout_action.toggled.connect(self._toggle_layout_mode)
         file_menu.addAction(self.layout_action)
+
+        # --- Indent Width submenu ---
+        self.indent_menu = file_menu.addMenu("&Indent Width")
+        self.indent_menu.setEnabled(False)
+        self._indent_group = QActionGroup(self.indent_menu)
+        self._indent_group.setExclusive(True)
+        self._indent_actions: dict[int, QAction] = {}
+
+        for width in INDENT_WIDTH_OPTIONS:
+            action = QAction(str(width), self.indent_menu)
+            action.setCheckable(True)
+            if width == DEFAULT_INDENT_WIDTH:
+                action.setChecked(True)
+            self._indent_group.addAction(action)
+            self.indent_menu.addAction(action)
+            self._indent_actions[width] = action
+
+        self._indent_group.triggered.connect(
+            self._on_indent_action_triggered,
+        )
+
+        # Enable/disable indent submenu with layout mode.
+        self.layout_action.toggled.connect(
+            self.indent_menu.setEnabled,
+        )
 
         file_menu.addSeparator()
 
@@ -246,6 +277,14 @@ class MainWindow(QMainWindow):
         self._preserve_layout = checked
         self.layout_mode_changed.emit(checked)
 
+    def _on_indent_action_triggered(
+        self,
+        action: QAction,
+    ) -> None:
+        """Handle indent-width radio selection."""
+        self._indent_width = int(action.text())
+        self.indent_width_changed.emit(self._indent_width)
+
     def _set_layout_mode(self, checked: bool) -> None:
         """Sync layout mode from an external source (e.g. tray)."""
         self._preserve_layout = checked
@@ -254,11 +293,21 @@ class MainWindow(QMainWindow):
             self.layout_action.setChecked(checked)
             self.layout_action.blockSignals(False)
 
+    def _set_indent_width(self, width: int) -> None:
+        """Sync indent width from an external source (e.g. tray)."""
+        self._indent_width = width
+        action = self._indent_actions.get(width)
+        if action and not action.isChecked():
+            self._indent_group.blockSignals(True)
+            action.setChecked(True)
+            self._indent_group.blockSignals(False)
+
     def _run_ocr(self, image: Image.Image) -> None:
         try:
             text = extract_text(
                 image,
                 preserve_layout=self._preserve_layout,
+                indent_width=self._indent_width,
             )
         except TesseractMissingError as exc:
             self._ocr_signals.error.emit(str(exc))
@@ -309,6 +358,8 @@ def main() -> None:
     tray.quit_triggered.connect(app.quit)
     tray.layout_mode_toggled.connect(window._set_layout_mode)
     window.layout_mode_changed.connect(tray.set_layout_mode)
+    tray.indent_width_changed.connect(window._set_indent_width)
+    window.indent_width_changed.connect(tray.set_indent_width)
     tray.show()
 
     # --- Global hotkey ---
