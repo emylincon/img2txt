@@ -45,6 +45,37 @@ class TestTrayIcon:
         assert hasattr(tray, "open_image_triggered")
         assert hasattr(tray, "show_window_triggered")
         assert hasattr(tray, "quit_triggered")
+        assert hasattr(tray, "code_mode_toggled")
+
+    def test_code_mode_action_exists(self, qapp):
+        """Context menu contains the Code Mode action."""
+        tray = TrayIcon()
+        menu = tray.contextMenu()
+        texts = [a.text() for a in menu.actions() if not a.isSeparator()]
+        assert "Code Mode" in texts
+
+    def test_code_mode_action_checkable(self, qapp):
+        """Code Mode action is checkable and off by default."""
+        tray = TrayIcon()
+        assert tray.code_mode_action.isCheckable()
+        assert tray.code_mode_action.isChecked() is False
+
+    def test_code_mode_signal_emitted(self, qapp):
+        """Toggling the action emits code_mode_toggled."""
+        tray = TrayIcon()
+        received = []
+        tray.code_mode_toggled.connect(received.append)
+        tray.code_mode_action.trigger()
+        assert received == [True]
+
+    def test_set_code_mode_syncs_without_signal(self, qapp):
+        """set_code_mode updates check state without emitting."""
+        tray = TrayIcon()
+        received = []
+        tray.code_mode_toggled.connect(received.append)
+        tray.set_code_mode(True)
+        assert tray.code_mode_action.isChecked() is True
+        assert received == []
 
     def test_capture_signal_emitted(self, qapp):
         """Capture Screen action emits capture_triggered."""
