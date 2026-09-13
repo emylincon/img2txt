@@ -53,3 +53,77 @@ class TestMainWindow:
         window.closeEvent(event)
         assert event.isAccepted() is False
         assert window.isVisible() is False
+
+    def test_layout_mode_default_false(self, qapp):
+        """Preserve Layout is off by default."""
+        window = MainWindow()
+        assert window._preserve_layout is False
+        assert window.layout_action.isChecked() is False
+
+    def test_preserve_layout_menu_action_exists(self, qapp):
+        """File menu contains the Preserve Layout action."""
+        window = MainWindow()
+        file_menu = window.menuBar().actions()[0].menu()
+        texts = [a.text() for a in file_menu.actions() if not a.isSeparator()]
+        assert "Preserve &Layout" in texts
+
+    def test_toggle_layout_mode_updates_state(self, qapp):
+        """Toggling the action updates _preserve_layout and emits signal."""
+        window = MainWindow()
+        received = []
+        window.layout_mode_changed.connect(received.append)
+        window.layout_action.trigger()
+        assert window._preserve_layout is True
+        assert received == [True]
+
+    def test_set_layout_mode_syncs_without_signal(self, qapp):
+        """_set_layout_mode updates state without re-emitting."""
+        window = MainWindow()
+        received = []
+        window.layout_mode_changed.connect(received.append)
+        window._set_layout_mode(True)
+        assert window._preserve_layout is True
+        assert window.layout_action.isChecked() is True
+        assert received == []
+
+    def test_indent_width_default(self, qapp):
+        """Default indent width is 2."""
+        window = MainWindow()
+        assert window._indent_width == 2
+
+    def test_indent_width_menu_exists(self, qapp):
+        """File menu contains the Indent Width submenu."""
+        window = MainWindow()
+        file_menu = window.menuBar().actions()[0].menu()
+        texts = [a.text() for a in file_menu.actions() if not a.isSeparator()]
+        assert "&Indent Width" in texts
+
+    def test_indent_width_menu_disabled_by_default(self, qapp):
+        """Indent Width submenu is disabled when layout mode is off."""
+        window = MainWindow()
+        assert window.indent_menu.isEnabled() is False
+
+    def test_indent_width_menu_enabled_with_layout(self, qapp):
+        """Indent Width submenu is enabled when layout mode is on."""
+        window = MainWindow()
+        window.layout_action.setChecked(True)
+        assert window.indent_menu.isEnabled() is True
+
+    def test_indent_width_radio_updates_state(self, qapp):
+        """Selecting an indent width updates _indent_width."""
+        window = MainWindow()
+        received = []
+        window.indent_width_changed.connect(received.append)
+        window._indent_actions[4].trigger()
+        assert window._indent_width == 4
+        assert received == [4]
+
+    def test_set_indent_width_syncs_without_signal(self, qapp):
+        """_set_indent_width updates state without re-emitting."""
+        window = MainWindow()
+        received = []
+        window.indent_width_changed.connect(received.append)
+        window._set_indent_width(4)
+        assert window._indent_width == 4
+        assert window._indent_actions[4].isChecked() is True
+        assert received == []

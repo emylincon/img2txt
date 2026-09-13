@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import platform
+
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QFont, QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -15,6 +17,16 @@ from PyQt6.QtWidgets import (
 )
 
 from src.clipboard import copy_and_notify
+
+
+def _monospace_font_family() -> str:
+    """Return a platform-appropriate monospace font family."""
+    system = platform.system()
+    if system == "Darwin":
+        return "Menlo"
+    if system == "Windows":
+        return "Consolas"
+    return "Monospace"
 
 
 class ImageLabel(QLabel):
@@ -73,6 +85,7 @@ class PreviewWidget(QWidget):
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
         self.text_edit.setPlaceholderText("Extracted text will appear here…")
+        self._default_font = self.text_edit.font()
         right_layout.addWidget(self.text_edit)
 
         self.copy_btn = QPushButton("Copy to Clipboard")
@@ -93,6 +106,23 @@ class PreviewWidget(QWidget):
         """Display extracted text in the right panel."""
         self.text_edit.setPlainText(text)
         self.copy_btn.setEnabled(bool(text))
+
+    def set_monospace(self, enabled: bool) -> None:
+        """Toggle monospace font and word wrap for layout mode.
+
+        Args:
+            enabled: When True, use a monospace font and
+                disable word wrap to preserve alignment.
+                When False, restore the default font and
+                word wrap.
+        """
+        if enabled:
+            font = QFont(_monospace_font_family())
+            self.text_edit.setFont(font)
+            self.text_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        else:
+            self.text_edit.setFont(self._default_font)
+            self.text_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
 
     def _on_copy(self) -> None:
         text = self.text_edit.toPlainText()
