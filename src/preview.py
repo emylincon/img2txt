@@ -83,9 +83,11 @@ class PreviewWidget(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
 
         self.text_edit = QTextEdit()
-        self.text_edit.setReadOnly(True)
-        self.text_edit.setPlaceholderText("Extracted text will appear here…")
+        self.text_edit.setPlaceholderText(
+            "Extracted text will appear here. You can edit before copying…"
+        )
         self._default_font = self.text_edit.font()
+        self.text_edit.textChanged.connect(self._on_text_changed)
         right_layout.addWidget(self.text_edit)
 
         self.copy_btn = QPushButton("Copy to Clipboard")
@@ -123,6 +125,9 @@ class PreviewWidget(QWidget):
         else:
             self.text_edit.setFont(self._default_font)
             self.text_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+
+    def _on_text_changed(self) -> None:
+        self.copy_btn.setEnabled(bool(self.text_edit.toPlainText()))
 
     def _on_copy(self) -> None:
         text = self.text_edit.toPlainText()

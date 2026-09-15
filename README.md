@@ -11,6 +11,8 @@ scanned documents.
   social posts, dashboards, and error messages.
 - **Area selection** — drag a rectangle to grab text
   from a specific region.
+- **Editable preview** — edit extracted text directly in
+  the preview box to fix OCR mistakes before copying.
 - **Simple interface** — intuitive split-panel preview
   with one-click copy.
 - **Layout mode** — preserve indentation and spacing
