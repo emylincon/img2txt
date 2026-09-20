@@ -1,10 +1,15 @@
 """Tests for the main application module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
+from PIL import Image
+from PyQt6.QtCore import QRect
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.main import MainWindow
+from src.selector import SelectionOverlay
 
 
 @pytest.fixture(scope="session")
@@ -127,3 +132,86 @@ class TestMainWindow:
         assert window._indent_width == 4
         assert window._indent_actions[4].isChecked() is True
         assert received == []
+
+    def test_second_capture_is_noop_while_overlay_active(self, qapp):
+        """A second capture request is ignored while overlay exists."""
+        window = MainWindow()
+        overlay = MagicMock(spec=SelectionOverlay)
+        overlay.isVisible.return_value = True
+        window._overlay = overlay
+        with patch.object(window, "showMinimized") as mock_min:
+            window._capture_screen()
+        mock_min.assert_not_called()
+        assert window._capture_pending is False
+
+    def test_second_capture_is_noop_while_pending(self, qapp):
+        """A second capture request is ignored while a timer is pending."""
+        window = MainWindow()
+        window._capture_pending = True
+        with patch.object(window, "showMinimized") as mock_min:
+            window._capture_screen()
+        mock_min.assert_not_called()
+
+    def test_close_event_quits_when_tray_unavailable(self, qapp):
+        """Without a tray, close accepts so the app can quit."""
+        window = MainWindow()
+        window._hide_on_close = False
+        window.show()
+        event = QCloseEvent()
+        window.closeEvent(event)
+        assert event.isAccepted() is True
+
+    def test_preview_region_ocrs_crop(self, qapp):
+        """Selecting a preview region OCRs the cropped image."""
+        window = MainWindow()
+        image = Image.new("RGB", (100, 80), color="white")
+        window._current_image = image
+        with patch.object(window, "_start_ocr") as mock_ocr:
+            window._on_preview_region(QRect(10, 10, 40, 30))
+        mock_ocr.assert_called_once()
+        cropped = mock_ocr.call_args[0][0]
+        assert cropped.size == (40, 30)
+
+    def test_preview_clear_ocrs_full_image(self, qapp):
+        """Clearing the selection re-OCRs the full loaded image."""
+        window = MainWindow()
+        image = Image.new("RGB", (100, 80), color="white")
+        window._current_image = image
+        with patch.object(window, "_start_ocr") as mock_ocr:
+            window._on_preview_cleared()
+        mock_ocr.assert_called_once_with(image)
+
+    def test_stale_ocr_result_is_ignored(self, qapp):
+        """An older OCR generation must not overwrite a newer result."""
+        window = MainWindow()
+        window._ocr_generation = 2
+        window._ocr_busy = True
+        window._on_ocr_done(1, "stale")
+        assert window.preview.text_edit.toPlainText() == ""
+        assert window._ocr_busy is True
+
+    def test_load_image_ocrs_full_file(self, qapp, tmp_path):
+        """Opening an image OCRs the full file by default."""
+        path = tmp_path / "sample.png"
+        Image.new("RGB", (40, 30), color="white").save(path)
+        window = MainWindow()
+        with patch.object(window, "_start_ocr") as mock_ocr:
+            window._load_image(str(path))
+        mock_ocr.assert_called_once()
+        loaded = mock_ocr.call_args[0][0]
+        assert loaded.size == (40, 30)
+        assert window._current_image is not None
+
+    def test_load_image_invalid_file_shows_dialog(self, qapp, tmp_path):
+        """A non-image file shows the Invalid Image dialog."""
+        path = tmp_path / "not-an-image.txt"
+        path.write_text("nope")
+        window = MainWindow()
+        with (
+            patch("src.main.QMessageBox.warning") as mock_warn,
+            patch.object(window, "_start_ocr") as mock_ocr,
+        ):
+            window._load_image(str(path))
+        mock_ocr.assert_not_called()
+        mock_warn.assert_called_once()
+        assert mock_warn.call_args[0][1] == "Invalid Image"

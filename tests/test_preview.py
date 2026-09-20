@@ -3,7 +3,9 @@
 from unittest.mock import patch
 
 import pytest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QRect
+from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.preview import PreviewWidget
 
@@ -73,3 +75,47 @@ class TestPreviewWidgetEditable:
         widget = PreviewWidget()
         placeholder = widget.text_edit.placeholderText()
         assert "edit" in placeholder.lower()
+
+    @patch("src.preview.copy_and_notify", return_value=False)
+    @patch.object(QMessageBox, "warning")
+    def test_copy_failure_shows_warning(self, mock_warn, mock_copy, qapp):
+        """A clipboard failure surfaces a warning dialog."""
+        widget = PreviewWidget()
+        widget.set_text("copied")
+        widget._on_copy()
+        mock_copy.assert_called_once_with("copied")
+        mock_warn.assert_called_once()
+
+
+class TestPreviewSelector:
+    """Preview panel region-selection wiring."""
+
+    def test_region_selected_enables_clear_button(self, qapp):
+        """A crop on the image label enables Clear selection."""
+        widget = PreviewWidget()
+        pixmap = QPixmap(80, 80)
+        pixmap.fill(QColor("green"))
+        widget.set_image(pixmap)
+        assert widget.clear_selection_btn.isEnabled() is False
+
+        received: list[QRect] = []
+        widget.region_selected.connect(received.append)
+        widget.image_label.region_selected.emit(QRect(5, 5, 20, 20))
+        assert received == [QRect(5, 5, 20, 20)]
+        assert widget.clear_selection_btn.isEnabled() is True
+
+    def test_clear_button_resets_selection(self, qapp):
+        """Clear selection emits selection_cleared and disables itself."""
+        widget = PreviewWidget()
+        pixmap = QPixmap(80, 80)
+        pixmap.fill(QColor("green"))
+        widget.set_image(pixmap)
+        widget.image_label._selection = QRect(5, 5, 20, 20)
+        widget.clear_selection_btn.setEnabled(True)
+
+        cleared: list[bool] = []
+        widget.selection_cleared.connect(lambda: cleared.append(True))
+        widget.clear_selection_btn.click()
+        assert cleared == [True]
+        assert widget.clear_selection_btn.isEnabled() is False
+        assert widget.image_label.has_selection() is False

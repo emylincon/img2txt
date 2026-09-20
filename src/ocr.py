@@ -7,8 +7,12 @@ from typing import TYPE_CHECKING
 import pytesseract
 from pytesseract import TesseractNotFoundError
 
+from src.resources import configure_tesseract
+
 if TYPE_CHECKING:
     from PIL import Image
+
+configure_tesseract()
 
 
 class OCRError(Exception):

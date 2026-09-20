@@ -160,3 +160,15 @@ class TestCropRegion:
         result = crop_region(img, rect)
 
         assert result.size == (200, 100)
+
+    def test_crop_clamps_overflow(self, qapp):
+        """A mapped rect past the image edge is clamped."""
+        img = Image.new("RGB", (100, 80), color="white")
+        result = crop_region(img, QRect(90, 70, 50, 50))
+        assert result.size == (10, 10)
+
+    def test_crop_clamps_negative_origin(self, qapp):
+        """Negative coordinates are clamped to the image origin."""
+        img = Image.new("RGB", (100, 80), color="white")
+        result = crop_region(img, QRect(-10, -20, 30, 40))
+        assert result.size == (20, 20)

@@ -210,11 +210,11 @@ img2txt/
 
 ### Phase 4 — Polish and Packaging
 
-- [ ] Rectangle selection on loaded images.
-- [ ] Error handling and edge cases.
-- [ ] PyInstaller packaging and testing on all three
+- [x] Rectangle selection on loaded images.
+- [x] Error handling and edge cases.
+- [x] PyInstaller packaging and testing on all three
   platforms.
-- [ ] GitHub Actions CI/CD for release builds.
+- [x] GitHub Actions CI/CD for release builds.
 
 ## Dependencies
 

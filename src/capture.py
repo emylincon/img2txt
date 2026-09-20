@@ -114,6 +114,9 @@ def crop_region(
 ) -> Image.Image:
     """Crop a PIL Image to the given QRect.
 
+    The rectangle is clamped to the image bounds so a
+    mapped selection cannot go out of range.
+
     Args:
         image: The source PIL Image.
         rect: A QRect defining the crop region.
@@ -121,10 +124,8 @@ def crop_region(
     Returns:
         A new PIL Image cropped to the rectangle.
     """
-    box = (
-        rect.x(),
-        rect.y(),
-        rect.x() + rect.width(),
-        rect.y() + rect.height(),
-    )
-    return image.crop(box)
+    left = max(0, min(rect.x(), image.width))
+    top = max(0, min(rect.y(), image.height))
+    right = max(left, min(rect.x() + rect.width(), image.width))
+    bottom = max(top, min(rect.y() + rect.height(), image.height))
+    return image.crop((left, top, right, bottom))

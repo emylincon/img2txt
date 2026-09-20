@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
 from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
-_ICON_PATH = Path(__file__).parent.parent / "assets" / "icon.png"
+from src.resources import resource_path
+
+_ICON_PATH = resource_path("assets", "icon.png")
 
 #: Indent-width choices exposed in the submenu.
 INDENT_WIDTH_OPTIONS: tuple[int, ...] = (2, 4, 8)
