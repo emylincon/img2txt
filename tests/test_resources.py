@@ -57,4 +57,4 @@ class TestConfigureTesseract:
             configure_tesseract()
 
         assert mock_pt.tesseract_cmd == str(exe)
-        assert environ["TESSDATA_PREFIX"] == str(tessdata)
+        assert environ["TESSDATA_PREFIX"] == str(bundled)

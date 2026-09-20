@@ -53,4 +53,5 @@ def configure_tesseract() -> None:
         None,
     )
     if tessdata is not None:
-        os.environ["TESSDATA_PREFIX"] = str(tessdata)
+        # Tesseract appends "tessdata/" to TESSDATA_PREFIX.
+        os.environ["TESSDATA_PREFIX"] = str(tessdata.parent)
