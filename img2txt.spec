@@ -24,6 +24,7 @@ hiddenimports = [
     *collect_submodules("mss"),
     "pytesseract",
     "PIL",
+    "PyQt6.QtMultimedia",
     "src.capture",
     "src.clipboard",
     "src.hotkey",
