@@ -241,8 +241,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(_CAPTURE_DELAY_MS, self._do_capture)
 
     def _do_capture(self) -> None:
-        self._capture_pending = False
         if self._overlay is not None and self._overlay.isVisible():
+            self._capture_pending = False
             return
 
         # Determine which screen the cursor is on so we
@@ -264,8 +264,7 @@ class MainWindow(QMainWindow):
         try:
             screenshot = take_screenshot(region)
         except ScreenRecordingPermissionError as exc:
-            self.showNormal()
-            self.activateWindow()
+            self._finish_capture()
             QMessageBox.warning(
                 self,
                 "Permission Required",
@@ -273,8 +272,7 @@ class MainWindow(QMainWindow):
             )
             return
         except Exception as exc:
-            self.showNormal()
-            self.activateWindow()
+            self._finish_capture()
             QMessageBox.critical(
                 self,
                 "Capture Error",
@@ -291,6 +289,7 @@ class MainWindow(QMainWindow):
         self._overlay.region_selected.connect(self._on_region_selected)
         self._overlay.cancelled.connect(self._on_capture_cancelled)
         self._overlay.show()
+        self._capture_pending = False
 
     def _finish_capture(self) -> None:
         self._capture_pending = False

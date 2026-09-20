@@ -152,6 +152,51 @@ class TestMainWindow:
             window._capture_screen()
         mock_min.assert_not_called()
 
+    def test_second_capture_is_noop_during_screenshot(self, qapp):
+        """A second capture is ignored while take_screenshot is running."""
+        window = MainWindow()
+        window._capture_pending = True
+        nested: list[bool] = []
+
+        def _screenshot(_region):
+            nested.append(window._capture_in_progress())
+            window._capture_screen()
+            return Image.new("RGB", (10, 10), color="white")
+
+        with (
+            patch("src.main.take_screenshot", side_effect=_screenshot),
+            patch("src.main.SelectionOverlay") as mock_overlay_cls,
+            patch.object(window, "showMinimized") as mock_min,
+        ):
+            overlay = MagicMock()
+            mock_overlay_cls.return_value = overlay
+            window._do_capture()
+
+        assert nested == [True]
+        mock_min.assert_not_called()
+        overlay.show.assert_called_once()
+        assert window._capture_pending is False
+        assert window._overlay is overlay
+
+    def test_capture_permission_error_finishes_capture(self, qapp):
+        """Permission errors restore the window and clear pending."""
+        from src.capture import ScreenRecordingPermissionError
+
+        window = MainWindow()
+        window._capture_pending = True
+        with (
+            patch(
+                "src.main.take_screenshot",
+                side_effect=ScreenRecordingPermissionError("denied"),
+            ),
+            patch("src.main.QMessageBox.warning") as mock_warn,
+            patch.object(window, "_finish_capture") as mock_finish,
+        ):
+            window._do_capture()
+        mock_finish.assert_called_once()
+        mock_warn.assert_called_once()
+        assert mock_warn.call_args[0][1] == "Permission Required"
+
     def test_close_event_quits_when_tray_unavailable(self, qapp):
         """Without a tray, close accepts so the app can quit."""
         window = MainWindow()
