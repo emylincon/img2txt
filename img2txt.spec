@@ -2,9 +2,12 @@
 """PyInstaller spec for IMG2TXT.
 
 Assets live under ``assets/`` and are resolved via
-``src.resources.resource_path``.  Tesseract is collected
-when a system install is present at build time; otherwise
-the frozen app still runs against a system Tesseract.
+``src.resources.resource_path``.  Windows builds copy a
+relocatable Tesseract tree (exe + sibling DLLs + tessdata)
+when a system install is present.  Unix binaries are
+dynlinked against Homebrew/apt libs that PyInstaller will
+not collect, so those platforms skip the binary and the
+frozen app uses a system Tesseract at runtime.
 """
 
 from __future__ import annotations
@@ -34,15 +37,27 @@ hiddenimports = [
 
 
 def _collect_tesseract() -> tuple[list, list]:
-    """Best-effort Tesseract binary + English tessdata."""
+    """Best-effort Tesseract binary + English tessdata.
+
+    Windows installers are self-contained (exe + sibling
+    DLLs). Unix binaries are dynlinked against Homebrew/apt
+    libs that PyInstaller will not collect, so those
+    platforms skip bundling and use a system Tesseract.
+    """
     binaries: list[tuple[str, str]] = []
     datas: list[tuple[str, str]] = []
+    if sys.platform != "win32":
+        return binaries, datas
+
     exe = shutil.which("tesseract") or shutil.which("tesseract.exe")
     if exe is None:
         return binaries, datas
 
     exe_path = Path(exe).resolve()
-    binaries.append((str(exe_path), "tesseract"))
+    dest = "tesseract"
+    binaries.append((str(exe_path), dest))
+    for dll in exe_path.parent.glob("*.dll"):
+        binaries.append((str(dll), dest))
 
     candidates = [
         exe_path.parent / "tessdata",
@@ -59,9 +74,8 @@ def _collect_tesseract() -> tuple[list, list]:
         candidates.insert(0, Path(prefix))
 
     for candidate in candidates:
-        eng = candidate / "eng.traineddata"
-        if eng.is_file():
-            datas.append((str(eng), "tesseract/tessdata"))
+        if (candidate / "eng.traineddata").is_file():
+            datas.append((str(candidate), "tesseract/tessdata"))
             break
     return binaries, datas
 

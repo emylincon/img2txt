@@ -29,9 +29,9 @@ Pre-built binaries for macOS, Windows, and Linux are
 attached to [GitHub Releases][releases]. Unzip the
 platform archive and run `img2txt`.
 
-Tesseract is bundled when the build machine has it
-installed; otherwise install Tesseract separately
-(see below).
+Windows releases bundle Tesseract when the build
+machine has it installed. macOS and Linux still need
+a system Tesseract (see below).
 
 ## Prerequisites
 
@@ -112,11 +112,13 @@ task build
 task clean
 ```
 
-The committed `img2txt.spec` packs `assets/` and, when
-Tesseract is on the build machine PATH, copies the
-binary plus `eng.traineddata`. Linux releases still
-work against a system `tesseract-ocr` install if
-bundling is skipped.
+The committed `img2txt.spec` packs `assets/`. Windows
+builds also copy a relocatable Tesseract tree (exe,
+sibling DLLs, and `eng.traineddata`) when Tesseract is
+on the build machine PATH. macOS and Linux binaries are
+not relocatable, so those releases skip the binary and
+need a system Tesseract (`brew install tesseract` /
+`apt install tesseract-ocr`).
 
 ## Releases
 
