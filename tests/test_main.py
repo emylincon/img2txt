@@ -230,10 +230,32 @@ class TestMainWindow:
         """An older OCR generation must not overwrite a newer result."""
         window = MainWindow()
         window._ocr_generation = 2
-        window._ocr_busy = True
         window._on_ocr_done(1, "stale")
         assert window.preview.text_edit.toPlainText() == ""
-        assert window._ocr_busy is True
+
+    def test_start_ocr_snapshots_image_and_settings(self, qapp):
+        """OCR workers receive a copy of the image and settings."""
+        window = MainWindow()
+        window._preserve_layout = True
+        window._indent_width = 4
+        image = Image.new("RGB", (10, 10), color="white")
+        submitted: dict = {}
+
+        def fake_submit(_fn, img, generation, preserve_layout, indent_width):
+            submitted["image"] = img
+            submitted["generation"] = generation
+            submitted["preserve_layout"] = preserve_layout
+            submitted["indent_width"] = indent_width
+
+        with patch.object(window._executor, "submit", side_effect=fake_submit):
+            window._start_ocr(image)
+
+        assert submitted["image"] is not image
+        assert submitted["image"].size == image.size
+        assert submitted["preserve_layout"] is True
+        assert submitted["indent_width"] == 4
+        image.putpixel((0, 0), (255, 0, 0))
+        assert submitted["image"].getpixel((0, 0)) == (255, 255, 255)
 
     def test_load_image_ocrs_full_file(self, qapp, tmp_path):
         """Opening an image OCRs the full file by default."""
@@ -260,3 +282,23 @@ class TestMainWindow:
         mock_ocr.assert_not_called()
         mock_warn.assert_called_once()
         assert mock_warn.call_args[0][1] == "Invalid Image"
+
+    def test_load_image_applies_exif_orientation(self, qapp, tmp_path):
+        """Loaded preview and OCR use the same EXIF-transposed pixels."""
+        path = tmp_path / "rotated.jpg"
+        image = Image.new("RGB", (40, 20), color="white")
+        exif = image.getexif()
+        exif[274] = 6  # Rotate 90 CW
+        image.save(path, format="JPEG", exif=exif)
+        window = MainWindow()
+        with patch.object(window, "_start_ocr") as mock_ocr:
+            window._load_image(str(path))
+        mock_ocr.assert_called_once()
+        loaded = mock_ocr.call_args[0][0]
+        assert loaded.size == (20, 40)
+        assert window._current_image is not None
+        assert window._current_image.size == (20, 40)
+        preview_pixmap = window.preview.image_label._pixmap
+        assert preview_pixmap is not None
+        assert preview_pixmap.size().width() == 20
+        assert preview_pixmap.size().height() == 40

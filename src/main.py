@@ -9,7 +9,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from PyQt6.QtCore import QObject, QRect, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
@@ -91,7 +91,6 @@ class MainWindow(QMainWindow):
         self._overlay: SelectionOverlay | None = None
         self._capture_pending = False
         self._ocr_generation = 0
-        self._ocr_busy = False
         self._hide_on_close = True
         self._preserve_layout = False
         self._indent_width = DEFAULT_INDENT_WIDTH
@@ -202,8 +201,9 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            image = Image.open(path)
-            image.load()
+            with Image.open(path) as src:
+                transposed = ImageOps.exif_transpose(src)
+                image = transposed.copy()
         except (OSError, UnidentifiedImageError):
             QMessageBox.warning(
                 self,
@@ -212,16 +212,14 @@ class MainWindow(QMainWindow):
             )
             return
 
-        pixmap = QPixmap(path)
+        pixmap = _pil_to_qpixmap(image)
         if pixmap.isNull():
-            pixmap = _pil_to_qpixmap(image)
-            if pixmap.isNull():
-                QMessageBox.warning(
-                    self,
-                    "Invalid Image",
-                    f"Could not load image:\n{path}",
-                )
-                return
+            QMessageBox.warning(
+                self,
+                "Invalid Image",
+                f"Could not load image:\n{path}",
+            )
+            return
 
         self._current_image = image
         self.preview.set_image(pixmap)
@@ -372,15 +370,26 @@ class MainWindow(QMainWindow):
         """Queue OCR, replacing any in-flight result."""
         self._ocr_generation += 1
         generation = self._ocr_generation
-        self._ocr_busy = True
-        self._executor.submit(self._run_ocr, image, generation)
+        self._executor.submit(
+            self._run_ocr,
+            image.copy(),
+            generation,
+            self._preserve_layout,
+            self._indent_width,
+        )
 
-    def _run_ocr(self, image: Image.Image, generation: int) -> None:
+    def _run_ocr(
+        self,
+        image: Image.Image,
+        generation: int,
+        preserve_layout: bool,
+        indent_width: int,
+    ) -> None:
         try:
             text = extract_text(
                 image,
-                preserve_layout=self._preserve_layout,
-                indent_width=self._indent_width,
+                preserve_layout=preserve_layout,
+                indent_width=indent_width,
             )
         except TesseractMissingError as exc:
             self._ocr_signals.error.emit(generation, str(exc))
@@ -397,7 +406,6 @@ class MainWindow(QMainWindow):
     def _on_ocr_done(self, generation: int, text: str) -> None:
         if generation != self._ocr_generation:
             return
-        self._ocr_busy = False
         self.preview.set_monospace(self._preserve_layout)
         if text:
             self.preview.set_text(text)
@@ -414,7 +422,6 @@ class MainWindow(QMainWindow):
     def _on_ocr_error(self, generation: int, message: str) -> None:
         if generation != self._ocr_generation:
             return
-        self._ocr_busy = False
         self.status_label.setText("OCR failed.")
         QMessageBox.critical(
             self,

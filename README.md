@@ -26,8 +26,8 @@ scanned documents.
 ## Download
 
 Pre-built binaries for macOS, Windows, and Linux are
-attached to [GitHub Releases][releases]. Unzip the
-platform archive and run `img2txt`.
+attached to GitHub Releases. Unzip the platform
+archive and run `img2txt`.
 
 Windows releases bundle Tesseract when the build
 machine has it installed. macOS and Linux still need
@@ -69,7 +69,7 @@ builds may prompt on first launch.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/img2txt.git
+git clone <repo-url>
 cd img2txt
 
 # Create a virtual environment
@@ -201,4 +201,3 @@ img2txt/
 MIT — see [LICENSE](LICENSE) for details.
 
 [tesseract]: https://github.com/tesseract-ocr/tesseract
-[releases]: https://github.com/your-username/img2txt/releases
