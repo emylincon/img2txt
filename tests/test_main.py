@@ -1,10 +1,15 @@
 """Tests for the main application module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
+from PIL import Image
+from PyQt6.QtCore import QRect
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication
 
-from src.main import MainWindow
+from src.main import MainWindow, _pil_to_qpixmap
+from src.selector import SelectionOverlay
 
 
 @pytest.fixture(scope="session")
@@ -127,3 +132,239 @@ class TestMainWindow:
         assert window._indent_width == 4
         assert window._indent_actions[4].isChecked() is True
         assert received == []
+
+    def test_second_capture_is_noop_while_overlay_active(self, qapp):
+        """A second capture request is ignored while overlay exists."""
+        window = MainWindow()
+        overlay = MagicMock(spec=SelectionOverlay)
+        overlay.isVisible.return_value = True
+        window._overlay = overlay
+        with patch.object(window, "showMinimized") as mock_min:
+            window._capture_screen()
+        mock_min.assert_not_called()
+        assert window._capture_pending is False
+
+    def test_second_capture_is_noop_while_pending(self, qapp):
+        """A second capture request is ignored while a timer is pending."""
+        window = MainWindow()
+        window._capture_pending = True
+        with patch.object(window, "showMinimized") as mock_min:
+            window._capture_screen()
+        mock_min.assert_not_called()
+
+    def test_second_capture_is_noop_during_screenshot(self, qapp):
+        """A second capture is ignored while take_screenshot is running."""
+        window = MainWindow()
+        window._capture_pending = True
+        nested: list[bool] = []
+
+        def _screenshot(_region):
+            nested.append(window._capture_in_progress())
+            window._capture_screen()
+            return Image.new("RGB", (10, 10), color="white")
+
+        with (
+            patch("src.main.take_screenshot", side_effect=_screenshot),
+            patch("src.main.SelectionOverlay") as mock_overlay_cls,
+            patch.object(window, "showMinimized") as mock_min,
+        ):
+            overlay = MagicMock()
+            mock_overlay_cls.return_value = overlay
+            window._do_capture()
+
+        assert nested == [True]
+        mock_min.assert_not_called()
+        overlay.show.assert_called_once()
+        assert window._capture_pending is False
+        assert window._overlay is overlay
+
+    def test_capture_permission_error_finishes_capture(self, qapp):
+        """Permission errors restore the window and clear pending."""
+        from src.capture import ScreenRecordingPermissionError
+
+        window = MainWindow()
+        window._capture_pending = True
+        with (
+            patch(
+                "src.main.take_screenshot",
+                side_effect=ScreenRecordingPermissionError("denied"),
+            ),
+            patch("src.main.QMessageBox.warning") as mock_warn,
+            patch.object(window, "_finish_capture") as mock_finish,
+        ):
+            window._do_capture()
+        mock_finish.assert_called_once()
+        mock_warn.assert_called_once()
+        assert mock_warn.call_args[0][1] == "Permission Required"
+
+    def test_close_event_quits_when_tray_unavailable(self, qapp):
+        """Without a tray, close accepts so the app can quit."""
+        window = MainWindow()
+        window._hide_on_close = False
+        window.show()
+        event = QCloseEvent()
+        window.closeEvent(event)
+        assert event.isAccepted() is True
+
+    def test_preview_region_ocrs_crop(self, qapp):
+        """Selecting a preview region OCRs the cropped image."""
+        window = MainWindow()
+        image = Image.new("RGB", (100, 80), color="white")
+        window._current_image = image
+        window.preview.set_text("stale")
+        with patch.object(window, "_start_ocr") as mock_ocr:
+            window._on_preview_region(QRect(10, 10, 40, 30))
+        mock_ocr.assert_called_once()
+        cropped = mock_ocr.call_args[0][0]
+        assert cropped.size == (40, 30)
+        assert window.preview.text_edit.toPlainText() == ""
+        assert window.preview.copy_btn.isEnabled() is False
+
+    def test_preview_clear_ocrs_full_image(self, qapp):
+        """Clearing the selection re-OCRs the full loaded image."""
+        window = MainWindow()
+        image = Image.new("RGB", (100, 80), color="white")
+        window._current_image = image
+        window.preview.set_text("stale")
+        with patch.object(window, "_start_ocr") as mock_ocr:
+            window._on_preview_cleared()
+        mock_ocr.assert_called_once_with(image)
+        assert window.preview.text_edit.toPlainText() == ""
+        assert window.preview.copy_btn.isEnabled() is False
+
+    def test_stale_ocr_result_is_ignored(self, qapp):
+        """An older OCR generation must not overwrite a newer result."""
+        window = MainWindow()
+        window._ocr_generation = 2
+        window._on_ocr_done(1, "stale")
+        assert window.preview.text_edit.toPlainText() == ""
+
+    def test_start_ocr_snapshots_image_and_settings(self, qapp):
+        """OCR workers receive a copy of the image and settings."""
+        window = MainWindow()
+        window._preserve_layout = True
+        window._indent_width = 4
+        image = Image.new("RGB", (10, 10), color="white")
+        submitted: dict = {}
+
+        def fake_submit(_fn, img, generation, preserve_layout, indent_width):
+            submitted["image"] = img
+            submitted["generation"] = generation
+            submitted["preserve_layout"] = preserve_layout
+            submitted["indent_width"] = indent_width
+
+        with patch.object(window._executor, "submit", side_effect=fake_submit):
+            window._start_ocr(image)
+
+        assert submitted["image"] is not image
+        assert submitted["image"].size == image.size
+        assert submitted["preserve_layout"] is True
+        assert submitted["indent_width"] == 4
+        image.putpixel((0, 0), (255, 0, 0))
+        assert submitted["image"].getpixel((0, 0)) == (255, 255, 255)
+
+    def test_load_image_ocrs_full_file(self, qapp, tmp_path):
+        """Opening an image OCRs the full file by default."""
+        path = tmp_path / "sample.png"
+        Image.new("RGB", (40, 30), color="white").save(path)
+        window = MainWindow()
+        with patch.object(window, "_start_ocr") as mock_ocr:
+            window._load_image(str(path))
+        mock_ocr.assert_called_once()
+        loaded = mock_ocr.call_args[0][0]
+        assert loaded.size == (40, 30)
+        assert window._current_image is not None
+
+    def test_load_image_invalid_file_shows_dialog(self, qapp, tmp_path):
+        """A non-image file shows the Invalid Image dialog."""
+        path = tmp_path / "not-an-image.txt"
+        path.write_text("nope")
+        window = MainWindow()
+        with (
+            patch("src.main.QMessageBox.warning") as mock_warn,
+            patch.object(window, "_start_ocr") as mock_ocr,
+        ):
+            window._load_image(str(path))
+        mock_ocr.assert_not_called()
+        mock_warn.assert_called_once()
+        assert mock_warn.call_args[0][1] == "Invalid Image"
+
+    def test_load_image_applies_exif_orientation(self, qapp, tmp_path):
+        """Loaded preview and OCR use the same EXIF-transposed pixels."""
+        path = tmp_path / "rotated.jpg"
+        image = Image.new("RGB", (40, 20), color="white")
+        exif = image.getexif()
+        exif[274] = 6  # Rotate 90 CW
+        image.save(path, format="JPEG", exif=exif)
+        window = MainWindow()
+        with patch.object(window, "_start_ocr") as mock_ocr:
+            window._load_image(str(path))
+        mock_ocr.assert_called_once()
+        loaded = mock_ocr.call_args[0][0]
+        assert loaded.size == (20, 40)
+        assert window._current_image is not None
+        assert window._current_image.size == (20, 40)
+        preview_pixmap = window.preview.image_label._pixmap
+        assert preview_pixmap is not None
+        assert preview_pixmap.size().width() == 20
+        assert preview_pixmap.size().height() == 40
+
+    def test_finish_capture_closes_overlay(self, qapp):
+        """Capture cleanup must close and delete the overlay."""
+        window = MainWindow()
+        overlay = MagicMock()
+        window._overlay = overlay
+        window._capture_pending = True
+        window._screenshot_image = Image.new("RGB", (4, 4))
+        window._finish_capture()
+        overlay.close.assert_called_once()
+        overlay.deleteLater.assert_called_once()
+        assert window._overlay is None
+        assert window._capture_pending is False
+        assert window._screenshot_image is None
+
+    def test_capture_conversion_error_finishes_capture(self, qapp):
+        """Pixmap conversion failures must restore the window."""
+        window = MainWindow()
+        window._capture_pending = True
+        with (
+            patch(
+                "src.main.take_screenshot",
+                return_value=Image.new("RGB", (10, 10)),
+            ),
+            patch("src.main._pil_to_qpixmap", side_effect=OSError("png")),
+            patch("src.main.QMessageBox.critical") as mock_crit,
+            patch.object(window, "_finish_capture") as mock_finish,
+        ):
+            window._do_capture()
+        mock_finish.assert_called_once()
+        mock_crit.assert_called_once()
+        assert mock_crit.call_args[0][1] == "Capture Error"
+
+    def test_start_ocr_coalesces_while_busy(self, qapp):
+        """A newer crop replaces a pending job instead of queueing both."""
+        window = MainWindow()
+        window._ocr_busy = True
+        first = Image.new("RGB", (10, 10), color="white")
+        second = Image.new("RGB", (20, 20), color="white")
+        with patch.object(window._executor, "submit") as mock_submit:
+            window._start_ocr(first)
+            window._start_ocr(second)
+        mock_submit.assert_not_called()
+        assert window._pending_ocr is not None
+        assert window._pending_ocr[0].size == (20, 20)
+
+        with patch.object(window._executor, "submit") as mock_submit:
+            window._on_ocr_done(0, "stale")
+        mock_submit.assert_called_once()
+        submitted = mock_submit.call_args[0]
+        assert submitted[1].size == (20, 20)
+        assert submitted[2] == window._ocr_generation
+
+    def test_pil_to_qpixmap_converts_cmyk(self, qapp):
+        """Non-RGB modes are converted before PNG encoding."""
+        image = Image.new("CMYK", (8, 8), color=(0, 0, 0, 0))
+        pixmap = _pil_to_qpixmap(image)
+        assert pixmap.isNull() is False
+        assert pixmap.width() == 8
+        assert pixmap.height() == 8

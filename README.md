@@ -20,6 +20,19 @@ scanned documents.
   Configurable indent width (2, 4, or 8 spaces).
 - **Offline** — runs entirely on your machine using
   Tesseract OCR.
+- **System tray + hotkey** — capture from the tray or
+  with a global shortcut (Ctrl+Shift+2 / Cmd+Shift+2).
+
+## Download
+
+Pre-built binaries for macOS, Windows, and Linux are
+attached to GitHub Releases. Unzip the platform archive
+and run the `img2txt` executable inside the `img2txt/`
+folder (do not move that executable out of the folder).
+
+Windows releases bundle Tesseract when the build
+machine has it installed. macOS and Linux still need
+a system Tesseract (see below).
 
 ## Prerequisites
 
@@ -39,11 +52,25 @@ sudo apt install tesseract-ocr
 choco install tesseract
 ```
 
+### macOS permissions
+
+The frozen (and source) app needs two macOS TCC grants:
+
+- **Accessibility** — global hotkey (`pynput`) and
+  simulating input. Grant this under
+  System Settings → Privacy & Security → Accessibility.
+- **Screen Recording** — screenshot capture via `mss`.
+  Grant this under System Settings → Privacy & Security
+  → Screen Recording.
+
+Codesigning and notarization are out of scope; unsigned
+builds may prompt on first launch.
+
 ## Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/img2txt.git
+git clone <repo-url>
 cd img2txt
 
 # Create a virtual environment
@@ -71,6 +98,39 @@ pytest
 
 # Run linter
 ruff check src/ tests/
+
+# Or run lint + format check + tests together
+task check
+```
+
+## Packaging
+
+```bash
+# Build a windowed onedir bundle into dist/img2txt/
+task build
+
+# Remove build/ and dist/ (keeps img2txt.spec)
+task clean
+```
+
+The committed `img2txt.spec` packs `assets/`. Windows
+builds also copy a relocatable Tesseract tree (exe,
+sibling DLLs, and `eng.traineddata`) when Tesseract is
+on the build machine PATH. macOS and Linux binaries are
+not relocatable, so those releases skip the binary and
+need a system Tesseract (`brew install tesseract` /
+`apt install tesseract-ocr`).
+
+## Releases
+
+Push a version tag to trigger
+`.github/workflows/release.yml`, which builds macOS,
+Windows, and Linux artifacts and attaches them to a
+GitHub Release:
+
+```bash
+git tag v0.1.0
+git push --tags
 ```
 
 ## Layout Mode
@@ -113,15 +173,24 @@ normalised:
 ```text
 img2txt/
 ├── src/
-│   ├── __init__.py
 │   ├── main.py
 │   ├── ocr.py
 │   ├── picker.py
 │   ├── preview.py
-│   └── clipboard.py
+│   ├── clipboard.py
+│   ├── capture.py
+│   ├── selector.py
+│   ├── tray.py
+│   ├── hotkey.py
+│   └── resources.py
 ├── assets/
 ├── tests/
 ├── project-plan/
+├── .github/workflows/
+│   ├── ci.yml
+│   └── release.yml
+├── img2txt.spec
+├── Taskfile.yml
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── pyproject.toml

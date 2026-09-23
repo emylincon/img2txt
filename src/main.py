@@ -9,15 +9,23 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from PIL import Image
-from PyQt6.QtCore import QObject, QRect, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QCloseEvent, QCursor, QPixmap
+from PIL import Image, ImageOps, UnidentifiedImageError
+from PyQt6.QtCore import QObject, QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (
+    QAction,
+    QActionGroup,
+    QCloseEvent,
+    QCursor,
+    QKeyEvent,
+    QPixmap,
+)
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
     QMainWindow,
     QMessageBox,
     QStatusBar,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -50,6 +58,8 @@ _CAPTURE_DELAY_MS = 500
 
 def _pil_to_qpixmap(image: Image.Image) -> QPixmap:
     """Convert a PIL Image to a QPixmap."""
+    if image.mode not in ("RGB", "RGBA", "L"):
+        image = image.convert("RGBA")
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     qpixmap = QPixmap()
@@ -60,8 +70,8 @@ def _pil_to_qpixmap(image: Image.Image) -> QPixmap:
 class _OCRSignals(QObject):
     """Signals for OCR background task."""
 
-    finished = pyqtSignal(str)
-    error = pyqtSignal(str)
+    finished = pyqtSignal(int, str)
+    error = pyqtSignal(int, str)
 
 
 class MainWindow(QMainWindow):
@@ -78,8 +88,14 @@ class MainWindow(QMainWindow):
         self._ocr_signals = _OCRSignals()
         self._ocr_signals.finished.connect(self._on_ocr_done)
         self._ocr_signals.error.connect(self._on_ocr_error)
+        self._current_image: Image.Image | None = None
         self._screenshot_image: Image.Image | None = None
         self._overlay: SelectionOverlay | None = None
+        self._capture_pending = False
+        self._ocr_generation = 0
+        self._ocr_busy = False
+        self._pending_ocr: tuple[Image.Image, int, bool, int] | None = None
+        self._hide_on_close = True
         self._preserve_layout = False
         self._indent_width = DEFAULT_INDENT_WIDTH
         self._setup_ui()
@@ -92,6 +108,8 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(4, 4, 4, 4)
 
         self.preview = PreviewWidget()
+        self.preview.region_selected.connect(self._on_preview_region)
+        self.preview.selection_cleared.connect(self._on_preview_cleared)
         layout.addWidget(self.preview)
 
         self.status_label = QLabel("")
@@ -154,9 +172,21 @@ class MainWindow(QMainWindow):
     def closeEvent(  # noqa: N802
         self, event: QCloseEvent
     ) -> None:
-        """Hide window instead of quitting."""
-        event.ignore()
-        self.hide()
+        """Hide to tray when a tray icon exists; otherwise quit."""
+        if self._hide_on_close:
+            event.ignore()
+            self.hide()
+            return
+        event.accept()
+
+    def keyPressEvent(  # noqa: N802
+        self, event: QKeyEvent
+    ) -> None:
+        """Forward Escape to the preview selector."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.preview.image_label.clear_selection()
+            return
+        super().keyPressEvent(event)
 
     def _open_image(self) -> None:
         path = open_image_dialog(self)
@@ -174,7 +204,27 @@ class MainWindow(QMainWindow):
             )
             return
 
-        pixmap = QPixmap(path)
+        try:
+            with Image.open(path) as src:
+                transposed = ImageOps.exif_transpose(src)
+                image = transposed.copy()
+        except (OSError, UnidentifiedImageError):
+            QMessageBox.warning(
+                self,
+                "Invalid Image",
+                f"Could not load image:\n{path}",
+            )
+            return
+
+        try:
+            pixmap = _pil_to_qpixmap(image)
+        except OSError:
+            QMessageBox.warning(
+                self,
+                "Invalid Image",
+                f"Could not load image:\n{path}",
+            )
+            return
         if pixmap.isNull():
             QMessageBox.warning(
                 self,
@@ -183,25 +233,43 @@ class MainWindow(QMainWindow):
             )
             return
 
+        self._current_image = image
         self.preview.set_image(pixmap)
         self.preview.set_text("")
         self.preview.copy_btn.setEnabled(False)
         self.status_label.setText("Extracting text…")
+        self._start_ocr(image)
 
-        self._executor.submit(self._run_ocr, Image.open(path))
+    def _capture_in_progress(self) -> bool:
+        return self._capture_pending or self._overlay is not None
 
     def _capture_screen(self) -> None:
+        if self._capture_in_progress():
+            return
+        self._capture_pending = True
         self.showMinimized()
         QTimer.singleShot(_CAPTURE_DELAY_MS, self._do_capture)
 
     def _do_capture(self) -> None:
+        if self._overlay is not None and self._overlay.isVisible():
+            self._capture_pending = False
+            return
+
         # Determine which screen the cursor is on so we
         # capture and overlay the correct monitor.
         cursor_pos = QCursor.pos()
         screen = QApplication.screenAt(cursor_pos)
         if screen is None:
             screen = QApplication.primaryScreen()
-        self._capture_screen = screen
+        if screen is None:
+            self._finish_capture()
+            QMessageBox.critical(
+                self,
+                "Capture Error",
+                "No screen is available.",
+            )
+            return
+        self._capture_target_screen = screen
 
         geom = screen.geometry()
         region = (
@@ -213,9 +281,14 @@ class MainWindow(QMainWindow):
 
         try:
             screenshot = take_screenshot(region)
+            qpixmap = _pil_to_qpixmap(screenshot)
+            self._screenshot_image = screenshot
+            self._overlay = SelectionOverlay(qpixmap, screen)
+            self._overlay.region_selected.connect(self._on_region_selected)
+            self._overlay.cancelled.connect(self._on_capture_cancelled)
+            self._overlay.show()
         except ScreenRecordingPermissionError as exc:
-            self.showNormal()
-            self.activateWindow()
+            self._finish_capture()
             QMessageBox.warning(
                 self,
                 "Permission Required",
@@ -223,29 +296,29 @@ class MainWindow(QMainWindow):
             )
             return
         except Exception as exc:
-            self.showNormal()
-            self.activateWindow()
+            self._finish_capture()
             QMessageBox.critical(
                 self,
                 "Capture Error",
                 f"Could not capture screen:\n{exc}",
             )
             return
+        self._capture_pending = False
 
-        self._screenshot_image = screenshot
-
-        # Convert PIL Image to QPixmap for overlay
-        qpixmap = _pil_to_qpixmap(screenshot)
-
-        self._overlay = SelectionOverlay(qpixmap, screen)
-        self._overlay.region_selected.connect(self._on_region_selected)
-        self._overlay.cancelled.connect(self._on_capture_cancelled)
-        self._overlay.show()
+    def _finish_capture(self) -> None:
+        self._capture_pending = False
+        if self._overlay is not None:
+            self._overlay.close()
+            self._overlay.deleteLater()
+            self._overlay = None
+        self._screenshot_image = None
+        self.showNormal()
+        self.activateWindow()
 
     def _on_region_selected(self, rect: QRect) -> None:
         # Scale selection from logical points to physical
         # pixels for HiDPI / Retina displays.
-        screen = getattr(self, "_capture_screen", None)
+        screen = getattr(self, "_capture_target_screen", None)
         if screen is None:
             screen = QApplication.primaryScreen()
         ratio = screen.devicePixelRatio() if screen else 1.0
@@ -260,18 +333,33 @@ class MainWindow(QMainWindow):
         # Convert cropped PIL Image to QPixmap
         qpixmap = _pil_to_qpixmap(cropped)
 
-        self.showNormal()
-        self.activateWindow()
+        self._current_image = cropped
+        self._finish_capture()
         self.preview.set_image(qpixmap)
         self.preview.set_text("")
         self.preview.copy_btn.setEnabled(False)
         self.status_label.setText("Extracting text…")
-
-        self._executor.submit(self._run_ocr, cropped)
+        self._start_ocr(cropped)
 
     def _on_capture_cancelled(self) -> None:
-        self.showNormal()
-        self.activateWindow()
+        self._finish_capture()
+
+    def _on_preview_region(self, rect: QRect) -> None:
+        if self._current_image is None:
+            return
+        cropped = crop_region(self._current_image, rect)
+        self.preview.set_text("")
+        self.preview.copy_btn.setEnabled(False)
+        self.status_label.setText("Extracting text…")
+        self._start_ocr(cropped)
+
+    def _on_preview_cleared(self) -> None:
+        if self._current_image is None:
+            return
+        self.preview.set_text("")
+        self.preview.copy_btn.setEnabled(False)
+        self.status_label.setText("Extracting text…")
+        self._start_ocr(self._current_image)
 
     def _toggle_layout_mode(self, checked: bool) -> None:
         self._preserve_layout = checked
@@ -302,65 +390,119 @@ class MainWindow(QMainWindow):
             action.setChecked(True)
             self._indent_group.blockSignals(False)
 
-    def _run_ocr(self, image: Image.Image) -> None:
+    def _start_ocr(self, image: Image.Image) -> None:
+        """Queue OCR, replacing any in-flight result."""
+        self._ocr_generation += 1
+        self._pending_ocr = (
+            image.copy(),
+            self._ocr_generation,
+            self._preserve_layout,
+            self._indent_width,
+        )
+        if self._ocr_busy:
+            return
+        self._dispatch_ocr()
+
+    def _dispatch_ocr(self) -> None:
+        if self._pending_ocr is None:
+            self._ocr_busy = False
+            return
+        image, generation, preserve_layout, indent_width = self._pending_ocr
+        self._pending_ocr = None
+        self._ocr_busy = True
+        self._executor.submit(
+            self._run_ocr,
+            image,
+            generation,
+            preserve_layout,
+            indent_width,
+        )
+
+    def _finish_ocr_job(self) -> None:
+        self._ocr_busy = False
+        self._dispatch_ocr()
+
+    def _run_ocr(
+        self,
+        image: Image.Image,
+        generation: int,
+        preserve_layout: bool,
+        indent_width: int,
+    ) -> None:
         try:
             text = extract_text(
                 image,
-                preserve_layout=self._preserve_layout,
-                indent_width=self._indent_width,
+                preserve_layout=preserve_layout,
+                indent_width=indent_width,
             )
         except TesseractMissingError as exc:
-            self._ocr_signals.error.emit(str(exc))
+            self._ocr_signals.error.emit(generation, str(exc))
         except OCRError as exc:
-            self._ocr_signals.error.emit(str(exc))
+            self._ocr_signals.error.emit(generation, str(exc))
         except Exception as exc:
-            self._ocr_signals.error.emit(f"Unexpected error: {exc}")
-        else:
-            self._ocr_signals.finished.emit(text)
-
-    def _on_ocr_done(self, text: str) -> None:
-        self.preview.set_monospace(self._preserve_layout)
-        if text:
-            self.preview.set_text(text)
-            self.status_label.setText("Text extracted successfully.")
-        else:
-            self.preview.set_text("")
-            self.status_label.setText("No text detected in this image.")
-            QMessageBox.information(
-                self,
-                "No Text Detected",
-                "OCR could not find any text in this image.",
+            self._ocr_signals.error.emit(
+                generation,
+                f"Unexpected error: {exc}",
             )
+        else:
+            self._ocr_signals.finished.emit(generation, text)
 
-    def _on_ocr_error(self, message: str) -> None:
-        self.status_label.setText("OCR failed.")
-        QMessageBox.critical(
-            self,
-            "OCR Error",
-            message,
-        )
+    def _on_ocr_done(self, generation: int, text: str) -> None:
+        try:
+            if generation != self._ocr_generation:
+                return
+            self.preview.set_monospace(self._preserve_layout)
+            if text:
+                self.preview.set_text(text)
+                self.status_label.setText("Text extracted successfully.")
+            else:
+                self.preview.set_text("")
+                self.status_label.setText("No text detected in this image.")
+                QMessageBox.information(
+                    self,
+                    "No Text Detected",
+                    "OCR could not find any text in this image.",
+                )
+        finally:
+            self._finish_ocr_job()
+
+    def _on_ocr_error(self, generation: int, message: str) -> None:
+        try:
+            if generation != self._ocr_generation:
+                return
+            self.status_label.setText("OCR failed.")
+            QMessageBox.critical(
+                self,
+                "OCR Error",
+                message,
+            )
+        finally:
+            self._finish_ocr_job()
 
 
 def main() -> None:
     """Launch the IMG2TXT application."""
     app = QApplication(sys.argv)
     app.setApplicationName("IMG2TXT")
-    app.setQuitOnLastWindowClosed(False)
 
     window = MainWindow()
+    tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+    window._hide_on_close = tray_available
+    app.setQuitOnLastWindowClosed(not tray_available)
 
     # --- System tray ---
-    tray = TrayIcon()
-    tray.capture_triggered.connect(window._capture_screen)
-    tray.open_image_triggered.connect(window._open_image)
-    tray.show_window_triggered.connect(window.showNormal)
-    tray.show_window_triggered.connect(window.activateWindow)
-    tray.quit_triggered.connect(app.quit)
-    tray.layout_mode_toggled.connect(window._set_layout_mode)
-    window.layout_mode_changed.connect(tray.set_layout_mode)
-    tray.indent_width_changed.connect(window._set_indent_width)
-    window.indent_width_changed.connect(tray.set_indent_width)
-    tray.show()
+    if tray_available:
+        tray = TrayIcon()
+        tray.capture_triggered.connect(window._capture_screen)
+        tray.open_image_triggered.connect(window._open_image)
+        tray.show_window_triggered.connect(window.showNormal)
+        tray.show_window_triggered.connect(window.activateWindow)
+        tray.quit_triggered.connect(app.quit)
+        tray.layout_mode_toggled.connect(window._set_layout_mode)
+        window.layout_mode_changed.connect(tray.set_layout_mode)
+        tray.indent_width_changed.connect(window._set_indent_width)
+        window.indent_width_changed.connect(tray.set_indent_width)
+        tray.show()
 
     # --- Global hotkey ---
     hotkey = HotkeyManager()
@@ -380,6 +522,7 @@ def main() -> None:
         )
 
     app.aboutToQuit.connect(hotkey.stop)
+    app.aboutToQuit.connect(lambda: window._executor.shutdown(wait=False))
 
     window.show()
 

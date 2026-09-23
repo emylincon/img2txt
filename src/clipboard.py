@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pyperclip
 
-if TYPE_CHECKING:
-    pass
+from src.resources import resource_path
 
 log = logging.getLogger(__name__)
 
-ASSETS_DIR = Path(__file__).parent.parent / "assets"
+ASSETS_DIR = resource_path("assets")
 SOUND_FILE = ASSETS_DIR / "success.wav"
 
 
@@ -39,17 +37,26 @@ def copy_and_notify(
     text: str,
     *,
     sound_effect: Any | None = None,
-) -> None:
+) -> bool:
     """Copy text to clipboard and play a sound.
 
     Args:
         text: The text to copy to the clipboard.
         sound_effect: Optional pre-loaded QSoundEffect.
             If None, a new one is created and played.
+
+    Returns:
+        ``True`` if the text was copied, ``False`` if the
+        clipboard backend refused the write.
     """
-    pyperclip.copy(text)
+    try:
+        pyperclip.copy(text)
+    except pyperclip.PyperclipException:
+        log.warning("Clipboard copy failed", exc_info=True)
+        return False
 
     if sound_effect is not None:
         sound_effect.play()
     else:
         _play_sound()
+    return True
