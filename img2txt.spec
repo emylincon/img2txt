@@ -37,8 +37,36 @@ hiddenimports = [
 ]
 
 
+def _windows_tesseract_exe() -> Path | None:
+    """Return a real Tesseract exe, ignoring Chocolatey shims."""
+    program_files = [
+        Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")),
+        Path(
+            os.environ.get(
+                "PROGRAMFILES(X86)",
+                r"C:\Program Files (x86)",
+            )
+        ),
+    ]
+    for root in program_files:
+        candidate = root / "Tesseract-OCR" / "tesseract.exe"
+        if candidate.is_file():
+            return candidate
+
+    which = shutil.which("tesseract") or shutil.which(
+        "tesseract.exe"
+    )
+    if which is None:
+        return None
+    path = Path(which).resolve()
+    # Reject Chocolatey shims: they have no sibling tessdata.
+    if not (path.parent / "tessdata" / "eng.traineddata").is_file():
+        return None
+    return path
+
+
 def _collect_tesseract() -> tuple[list, list]:
-    """Best-effort Tesseract binary + English tessdata.
+    """Collect a relocatable Tesseract tree on Windows.
 
     Windows installers are self-contained (exe + sibling
     DLLs). Unix binaries are dynlinked against Homebrew/apt
@@ -50,34 +78,24 @@ def _collect_tesseract() -> tuple[list, list]:
     if sys.platform != "win32":
         return binaries, datas
 
-    exe = shutil.which("tesseract") or shutil.which("tesseract.exe")
-    if exe is None:
-        return binaries, datas
+    exe_path = _windows_tesseract_exe()
+    if exe_path is None:
+        raise SystemExit(
+            "Windows builds require a real Tesseract install "
+            "(tesseract.exe + tessdata), not only a PATH shim."
+        )
 
-    exe_path = Path(exe).resolve()
     dest = "tesseract"
     binaries.append((str(exe_path), dest))
     for dll in exe_path.parent.glob("*.dll"):
         binaries.append((str(dll), dest))
 
-    candidates = [
-        exe_path.parent / "tessdata",
-        exe_path.parent.parent / "share" / "tessdata",
-        exe_path.parent.parent / "share" / "tesseract-ocr" / "tessdata",
-        Path("/usr/share/tesseract-ocr/5/tessdata"),
-        Path("/usr/share/tesseract-ocr/4.00/tessdata"),
-        Path("/usr/share/tessdata"),
-        Path("/opt/homebrew/share/tessdata"),
-        Path("/usr/local/share/tessdata"),
-    ]
-    prefix = os.environ.get("TESSDATA_PREFIX")
-    if prefix:
-        candidates.insert(0, Path(prefix))
-
-    for candidate in candidates:
-        if (candidate / "eng.traineddata").is_file():
-            datas.append((str(candidate), "tesseract/tessdata"))
-            break
+    tessdata = exe_path.parent / "tessdata"
+    if not (tessdata / "eng.traineddata").is_file():
+        raise SystemExit(
+            "eng.traineddata not found next to tesseract.exe"
+        )
+    datas.append((str(tessdata), "tesseract/tessdata"))
     return binaries, datas
 
 

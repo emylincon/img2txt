@@ -42,13 +42,48 @@ jobs:
 
       - name: Install Tesseract (Windows)
         if: runner.os == 'Windows'
-        run: choco install tesseract
+        run: choco install tesseract --yes --no-progress
+
+      - name: Refresh PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tess = "${env:ProgramFiles}\Tesseract-OCR"
+          if (Test-Path $tess) {
+            echo "$tess" | Out-File -FilePath $env:GITHUB_PATH -Append
+          }
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Test
+        run: pytest --tb=short
+        env:
+          QT_QPA_PLATFORM: offscreen
+
       - name: Build
         run: pyinstaller img2txt.spec
+
+      - name: Verify bundled Tesseract (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $roots = @(
+            "dist\img2txt\_internal\tesseract",
+            "dist\img2txt\tesseract"
+          )
+          $found = $false
+          foreach ($root in $roots) {
+            $exe = Join-Path $root "tesseract.exe"
+            $data = Join-Path $root "tessdata\eng.traineddata"
+            if ((Test-Path $exe) -and (Test-Path $data)) {
+              $found = $true
+              break
+            }
+          }
+          if (-not $found) {
+            throw "tesseract.exe + eng.traineddata were not bundled"
+          }
 
       - name: Package artifact (Unix)
         if: runner.os != 'Windows'

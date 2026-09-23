@@ -58,6 +58,8 @@ _CAPTURE_DELAY_MS = 500
 
 def _pil_to_qpixmap(image: Image.Image) -> QPixmap:
     """Convert a PIL Image to a QPixmap."""
+    if image.mode not in ("RGB", "RGBA", "L"):
+        image = image.convert("RGBA")
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     qpixmap = QPixmap()
@@ -91,6 +93,8 @@ class MainWindow(QMainWindow):
         self._overlay: SelectionOverlay | None = None
         self._capture_pending = False
         self._ocr_generation = 0
+        self._ocr_busy = False
+        self._pending_ocr: tuple[Image.Image, int, bool, int] | None = None
         self._hide_on_close = True
         self._preserve_layout = False
         self._indent_width = DEFAULT_INDENT_WIDTH
@@ -212,7 +216,15 @@ class MainWindow(QMainWindow):
             )
             return
 
-        pixmap = _pil_to_qpixmap(image)
+        try:
+            pixmap = _pil_to_qpixmap(image)
+        except OSError:
+            QMessageBox.warning(
+                self,
+                "Invalid Image",
+                f"Could not load image:\n{path}",
+            )
+            return
         if pixmap.isNull():
             QMessageBox.warning(
                 self,
@@ -249,6 +261,14 @@ class MainWindow(QMainWindow):
         screen = QApplication.screenAt(cursor_pos)
         if screen is None:
             screen = QApplication.primaryScreen()
+        if screen is None:
+            self._finish_capture()
+            QMessageBox.critical(
+                self,
+                "Capture Error",
+                "No screen is available.",
+            )
+            return
         self._capture_target_screen = screen
 
         geom = screen.geometry()
@@ -261,6 +281,12 @@ class MainWindow(QMainWindow):
 
         try:
             screenshot = take_screenshot(region)
+            qpixmap = _pil_to_qpixmap(screenshot)
+            self._screenshot_image = screenshot
+            self._overlay = SelectionOverlay(qpixmap, screen)
+            self._overlay.region_selected.connect(self._on_region_selected)
+            self._overlay.cancelled.connect(self._on_capture_cancelled)
+            self._overlay.show()
         except ScreenRecordingPermissionError as exc:
             self._finish_capture()
             QMessageBox.warning(
@@ -277,21 +303,15 @@ class MainWindow(QMainWindow):
                 f"Could not capture screen:\n{exc}",
             )
             return
-
-        self._screenshot_image = screenshot
-
-        # Convert PIL Image to QPixmap for overlay
-        qpixmap = _pil_to_qpixmap(screenshot)
-
-        self._overlay = SelectionOverlay(qpixmap, screen)
-        self._overlay.region_selected.connect(self._on_region_selected)
-        self._overlay.cancelled.connect(self._on_capture_cancelled)
-        self._overlay.show()
         self._capture_pending = False
 
     def _finish_capture(self) -> None:
         self._capture_pending = False
-        self._overlay = None
+        if self._overlay is not None:
+            self._overlay.close()
+            self._overlay.deleteLater()
+            self._overlay = None
+        self._screenshot_image = None
         self.showNormal()
         self.activateWindow()
 
@@ -328,12 +348,16 @@ class MainWindow(QMainWindow):
         if self._current_image is None:
             return
         cropped = crop_region(self._current_image, rect)
+        self.preview.set_text("")
+        self.preview.copy_btn.setEnabled(False)
         self.status_label.setText("Extracting text…")
         self._start_ocr(cropped)
 
     def _on_preview_cleared(self) -> None:
         if self._current_image is None:
             return
+        self.preview.set_text("")
+        self.preview.copy_btn.setEnabled(False)
         self.status_label.setText("Extracting text…")
         self._start_ocr(self._current_image)
 
@@ -369,14 +393,34 @@ class MainWindow(QMainWindow):
     def _start_ocr(self, image: Image.Image) -> None:
         """Queue OCR, replacing any in-flight result."""
         self._ocr_generation += 1
-        generation = self._ocr_generation
-        self._executor.submit(
-            self._run_ocr,
+        self._pending_ocr = (
             image.copy(),
-            generation,
+            self._ocr_generation,
             self._preserve_layout,
             self._indent_width,
         )
+        if self._ocr_busy:
+            return
+        self._dispatch_ocr()
+
+    def _dispatch_ocr(self) -> None:
+        if self._pending_ocr is None:
+            self._ocr_busy = False
+            return
+        image, generation, preserve_layout, indent_width = self._pending_ocr
+        self._pending_ocr = None
+        self._ocr_busy = True
+        self._executor.submit(
+            self._run_ocr,
+            image,
+            generation,
+            preserve_layout,
+            indent_width,
+        )
+
+    def _finish_ocr_job(self) -> None:
+        self._ocr_busy = False
+        self._dispatch_ocr()
 
     def _run_ocr(
         self,
@@ -404,30 +448,36 @@ class MainWindow(QMainWindow):
             self._ocr_signals.finished.emit(generation, text)
 
     def _on_ocr_done(self, generation: int, text: str) -> None:
-        if generation != self._ocr_generation:
-            return
-        self.preview.set_monospace(self._preserve_layout)
-        if text:
-            self.preview.set_text(text)
-            self.status_label.setText("Text extracted successfully.")
-        else:
-            self.preview.set_text("")
-            self.status_label.setText("No text detected in this image.")
-            QMessageBox.information(
-                self,
-                "No Text Detected",
-                "OCR could not find any text in this image.",
-            )
+        try:
+            if generation != self._ocr_generation:
+                return
+            self.preview.set_monospace(self._preserve_layout)
+            if text:
+                self.preview.set_text(text)
+                self.status_label.setText("Text extracted successfully.")
+            else:
+                self.preview.set_text("")
+                self.status_label.setText("No text detected in this image.")
+                QMessageBox.information(
+                    self,
+                    "No Text Detected",
+                    "OCR could not find any text in this image.",
+                )
+        finally:
+            self._finish_ocr_job()
 
     def _on_ocr_error(self, generation: int, message: str) -> None:
-        if generation != self._ocr_generation:
-            return
-        self.status_label.setText("OCR failed.")
-        QMessageBox.critical(
-            self,
-            "OCR Error",
-            message,
-        )
+        try:
+            if generation != self._ocr_generation:
+                return
+            self.status_label.setText("OCR failed.")
+            QMessageBox.critical(
+                self,
+                "OCR Error",
+                message,
+            )
+        finally:
+            self._finish_ocr_job()
 
 
 def main() -> None:

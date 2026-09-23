@@ -1,5 +1,8 @@
 """Tests for the preview-panel region selector."""
 
+from unittest.mock import patch
+
+import pytest
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QKeyEvent, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import QApplication
@@ -11,7 +14,9 @@ from src.preview import (
 )
 
 
-def _qapp():
+@pytest.fixture(scope="session")
+def qapp():
+    """Create a QApplication instance for tests."""
     return QApplication.instance() or QApplication([])
 
 
@@ -68,9 +73,8 @@ class TestCoordinateMapping:
 class TestImageLabelSelection:
     """Widget-level rubber-band behaviour."""
 
-    def test_clear_selection_emits(self):
+    def test_clear_selection_emits(self, qapp):
         """clear_selection emits selection_cleared after a crop."""
-        _qapp()
         label = ImageLabel()
         label.resize(200, 200)
         pixmap = QPixmap(200, 200)
@@ -85,9 +89,8 @@ class TestImageLabelSelection:
         assert cleared == [True]
         assert label.has_selection() is False
 
-    def test_escape_clears_selection(self):
+    def test_escape_clears_selection(self, qapp):
         """Escape resets the crop and emits selection_cleared."""
-        _qapp()
         label = ImageLabel()
         label.resize(200, 200)
         pixmap = QPixmap(200, 200)
@@ -105,9 +108,8 @@ class TestImageLabelSelection:
         label.keyPressEvent(event)
         assert cleared == [True]
 
-    def test_tiny_drag_does_not_emit_region(self):
+    def test_tiny_drag_does_not_emit_region(self, qapp):
         """A sub-threshold mouse drag is ignored."""
-        _qapp()
         label = ImageLabel()
         label.resize(200, 200)
         pixmap = QPixmap(200, 200)
@@ -127,9 +129,8 @@ class TestImageLabelSelection:
         assert selected == []
         assert label.has_selection() is False
 
-    def test_drag_emits_original_image_rect(self):
+    def test_drag_emits_original_image_rect(self, qapp):
         """A large enough drag maps 1:1 when widget and image match."""
-        _qapp()
         label = ImageLabel()
         label.resize(200, 200)
         pixmap = QPixmap(200, 200)
@@ -146,5 +147,25 @@ class TestImageLabelSelection:
         label.mouseReleaseEvent(
             _mouse(QEvent.Type.MouseButtonRelease, QPoint(80, 90))
         )
-        # QRect(QPoint, QPoint) includes both corners.
         assert selected == [QRect(20, 30, 61, 61)]
+
+    def test_press_grabs_mouse_and_release_ungrabs(self, qapp):
+        """Drags grab the mouse so a release outside still commits."""
+        label = ImageLabel()
+        label.resize(200, 200)
+        pixmap = QPixmap(200, 200)
+        pixmap.fill(QColor("blue"))
+        label.set_image(pixmap)
+        with (
+            patch.object(label, "grabMouse") as mock_grab,
+            patch.object(label, "releaseMouse") as mock_release,
+            patch.object(label, "mouseGrabber", return_value=label),
+        ):
+            label.mousePressEvent(
+                _mouse(QEvent.Type.MouseButtonPress, QPoint(20, 30))
+            )
+            mock_grab.assert_called_once()
+            label.mouseReleaseEvent(
+                _mouse(QEvent.Type.MouseButtonRelease, QPoint(80, 90))
+            )
+            mock_release.assert_called_once()

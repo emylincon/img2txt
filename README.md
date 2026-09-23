@@ -26,8 +26,9 @@ scanned documents.
 ## Download
 
 Pre-built binaries for macOS, Windows, and Linux are
-attached to GitHub Releases. Unzip the platform
-archive and run `img2txt`.
+attached to GitHub Releases. Unzip the platform archive
+and run the `img2txt` executable inside the `img2txt/`
+folder (do not move that executable out of the folder).
 
 Windows releases bundle Tesseract when the build
 machine has it installed. macOS and Linux still need

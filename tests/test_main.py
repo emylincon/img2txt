@@ -8,7 +8,7 @@ from PyQt6.QtCore import QRect
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication
 
-from src.main import MainWindow
+from src.main import MainWindow, _pil_to_qpixmap
 from src.selector import SelectionOverlay
 
 
@@ -211,20 +211,26 @@ class TestMainWindow:
         window = MainWindow()
         image = Image.new("RGB", (100, 80), color="white")
         window._current_image = image
+        window.preview.set_text("stale")
         with patch.object(window, "_start_ocr") as mock_ocr:
             window._on_preview_region(QRect(10, 10, 40, 30))
         mock_ocr.assert_called_once()
         cropped = mock_ocr.call_args[0][0]
         assert cropped.size == (40, 30)
+        assert window.preview.text_edit.toPlainText() == ""
+        assert window.preview.copy_btn.isEnabled() is False
 
     def test_preview_clear_ocrs_full_image(self, qapp):
         """Clearing the selection re-OCRs the full loaded image."""
         window = MainWindow()
         image = Image.new("RGB", (100, 80), color="white")
         window._current_image = image
+        window.preview.set_text("stale")
         with patch.object(window, "_start_ocr") as mock_ocr:
             window._on_preview_cleared()
         mock_ocr.assert_called_once_with(image)
+        assert window.preview.text_edit.toPlainText() == ""
+        assert window.preview.copy_btn.isEnabled() is False
 
     def test_stale_ocr_result_is_ignored(self, qapp):
         """An older OCR generation must not overwrite a newer result."""
@@ -302,3 +308,63 @@ class TestMainWindow:
         assert preview_pixmap is not None
         assert preview_pixmap.size().width() == 20
         assert preview_pixmap.size().height() == 40
+
+    def test_finish_capture_closes_overlay(self, qapp):
+        """Capture cleanup must close and delete the overlay."""
+        window = MainWindow()
+        overlay = MagicMock()
+        window._overlay = overlay
+        window._capture_pending = True
+        window._screenshot_image = Image.new("RGB", (4, 4))
+        window._finish_capture()
+        overlay.close.assert_called_once()
+        overlay.deleteLater.assert_called_once()
+        assert window._overlay is None
+        assert window._capture_pending is False
+        assert window._screenshot_image is None
+
+    def test_capture_conversion_error_finishes_capture(self, qapp):
+        """Pixmap conversion failures must restore the window."""
+        window = MainWindow()
+        window._capture_pending = True
+        with (
+            patch(
+                "src.main.take_screenshot",
+                return_value=Image.new("RGB", (10, 10)),
+            ),
+            patch("src.main._pil_to_qpixmap", side_effect=OSError("png")),
+            patch("src.main.QMessageBox.critical") as mock_crit,
+            patch.object(window, "_finish_capture") as mock_finish,
+        ):
+            window._do_capture()
+        mock_finish.assert_called_once()
+        mock_crit.assert_called_once()
+        assert mock_crit.call_args[0][1] == "Capture Error"
+
+    def test_start_ocr_coalesces_while_busy(self, qapp):
+        """A newer crop replaces a pending job instead of queueing both."""
+        window = MainWindow()
+        window._ocr_busy = True
+        first = Image.new("RGB", (10, 10), color="white")
+        second = Image.new("RGB", (20, 20), color="white")
+        with patch.object(window._executor, "submit") as mock_submit:
+            window._start_ocr(first)
+            window._start_ocr(second)
+        mock_submit.assert_not_called()
+        assert window._pending_ocr is not None
+        assert window._pending_ocr[0].size == (20, 20)
+
+        with patch.object(window._executor, "submit") as mock_submit:
+            window._on_ocr_done(0, "stale")
+        mock_submit.assert_called_once()
+        submitted = mock_submit.call_args[0]
+        assert submitted[1].size == (20, 20)
+        assert submitted[2] == window._ocr_generation
+
+    def test_pil_to_qpixmap_converts_cmyk(self, qapp):
+        """Non-RGB modes are converted before PNG encoding."""
+        image = Image.new("CMYK", (8, 8), color=(0, 0, 0, 0))
+        pixmap = _pil_to_qpixmap(image)
+        assert pixmap.isNull() is False
+        assert pixmap.width() == 8
+        assert pixmap.height() == 8

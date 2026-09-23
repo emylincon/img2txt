@@ -204,6 +204,8 @@ class ImageLabel(QLabel):
         self._origin = None
         self._current = None
         self._active_handle = None
+        if self.mouseGrabber() is self:
+            self.releaseMouse()
         self.update()
         self.selection_cleared.emit()
 
@@ -308,12 +310,14 @@ class ImageLabel(QLabel):
             self._active_handle = handle
             self._origin = opposite
             self._current = event.pos()
+            self.grabMouse()
             self.update()
             return
 
         self._active_handle = None
         self._origin = event.pos()
         self._current = event.pos()
+        self.grabMouse()
         self.update()
 
     def mouseMoveEvent(  # noqa: N802
@@ -347,6 +351,9 @@ class ImageLabel(QLabel):
             or self._current is None
         ):
             return
+
+        if self.mouseGrabber() is self:
+            self.releaseMouse()
 
         widget_rect = QRect(self._origin, self._current).normalized()
         self._origin = None
