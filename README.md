@@ -27,8 +27,7 @@ scanned documents.
 
 Pre-built binaries for macOS, Windows, and Linux are
 attached to GitHub Releases. Unzip the platform archive
-and run the `img2txt` executable inside the `img2txt/`
-folder (do not move that executable out of the folder).
+and run the `img2txt` executable (Windows: `img2txt.exe`).
 
 Windows releases bundle Tesseract when the build
 machine has it installed. macOS and Linux still need
@@ -106,20 +105,25 @@ task check
 ## Packaging
 
 ```bash
-# Build a windowed onedir bundle into dist/img2txt/
+# Build a windowed onefile binary into dist/img2txt
+# (Windows: dist/img2txt.exe)
 task build
 
 # Remove build/ and dist/ (keeps img2txt.spec)
 task clean
 ```
 
-The committed `img2txt.spec` packs `assets/`. Windows
-builds also copy a relocatable Tesseract tree (exe,
-sibling DLLs, and `eng.traineddata`) when Tesseract is
-on the build machine PATH. macOS and Linux binaries are
-not relocatable, so those releases skip the binary and
-need a system Tesseract (`brew install tesseract` /
-`apt install tesseract-ocr`).
+The committed `img2txt.spec` packs `assets/` into a
+single binary. Windows builds also copy a relocatable
+Tesseract tree (exe, sibling DLLs, and `eng.traineddata`)
+when Tesseract is on the build machine PATH. macOS and
+Linux binaries are not relocatable, so those releases
+skip the binary and need a system Tesseract
+(`brew install tesseract` / `apt install tesseract-ocr`).
+
+The onefile binary extracts bundled files to a temp
+directory on each launch, so the first open is slower
+than a folder (onedir) build.
 
 ## Releases
 
