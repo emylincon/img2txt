@@ -66,36 +66,31 @@ jobs:
 
       - name: Verify bundled Tesseract (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: python
         run: |
-          $roots = @(
-            "dist\img2txt\_internal\tesseract",
-            "dist\img2txt\tesseract"
+          from PyInstaller.archive.readers import CArchiveReader
+          toc = CArchiveReader(r"dist\img2txt.exe").toc
+          required = (
+              "tesseract/tesseract.exe",
+              "tesseract/tessdata/eng.traineddata",
           )
-          $found = $false
-          foreach ($root in $roots) {
-            $exe = Join-Path $root "tesseract.exe"
-            $data = Join-Path $root "tessdata\eng.traineddata"
-            if ((Test-Path $exe) -and (Test-Path $data)) {
-              $found = $true
-              break
-            }
-          }
-          if (-not $found) {
-            throw "tesseract.exe + eng.traineddata were not bundled"
-          }
+          missing = [name for name in required if name not in toc]
+          if missing:
+              raise SystemExit(
+                  "missing from onefile archive: " + ", ".join(missing)
+              )
 
       - name: Package artifact (Unix)
         if: runner.os != 'Windows'
         run: |
           cd dist
-          zip -r "../${{ matrix.artifact }}.zip" img2txt
+          zip "../${{ matrix.artifact }}.zip" img2txt
 
       - name: Package artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path dist\img2txt `
+          Compress-Archive -Path dist\img2txt.exe `
             -DestinationPath "${{ matrix.artifact }}.zip"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
