@@ -3,11 +3,31 @@
 from unittest.mock import patch
 
 import pytest
-from PyQt6.QtCore import QRect
-from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PyQt6.QtGui import QColor, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.preview import PreviewWidget
+
+
+def _mouse(
+    event_type: QEvent.Type,
+    pos: QPoint,
+    *,
+    button: Qt.MouseButton = Qt.MouseButton.LeftButton,
+) -> QMouseEvent:
+    buttons = (
+        Qt.MouseButton.NoButton
+        if event_type == QEvent.Type.MouseButtonRelease
+        else button
+    )
+    return QMouseEvent(
+        event_type,
+        QPointF(pos),
+        button,
+        buttons,
+        Qt.KeyboardModifier.NoModifier,
+    )
 
 
 @pytest.fixture(scope="session")
@@ -119,3 +139,45 @@ class TestPreviewSelector:
         assert cleared == [True]
         assert widget.clear_selection_btn.isEnabled() is False
         assert widget.image_label.has_selection() is False
+
+    def test_clear_button_accepts_clicked_bool(self, qapp):
+        """clicked(bool) must not TypeError the clear-selection slot."""
+        widget = PreviewWidget()
+        pixmap = QPixmap(80, 80)
+        pixmap.fill(QColor("green"))
+        widget.set_image(pixmap)
+        widget.image_label._selection = QRect(5, 5, 20, 20)
+        widget.clear_selection_btn.setEnabled(True)
+
+        widget._on_clear_selection_clicked(True)
+        assert widget.image_label.has_selection() is False
+        assert widget.clear_selection_btn.isEnabled() is False
+
+    def test_clear_button_after_mouse_drag(self, qapp):
+        """A real crop then a button click restores the full image."""
+        widget = PreviewWidget()
+        widget.image_label.resize(200, 200)
+        pixmap = QPixmap(200, 200)
+        pixmap.fill(QColor("green"))
+        widget.set_image(pixmap)
+
+        cleared: list[bool] = []
+        widget.selection_cleared.connect(lambda: cleared.append(True))
+
+        label = widget.image_label
+        label.mousePressEvent(
+            _mouse(QEvent.Type.MouseButtonPress, QPoint(20, 30))
+        )
+        label.mouseMoveEvent(_mouse(QEvent.Type.MouseMove, QPoint(80, 90)))
+        label.mouseReleaseEvent(
+            _mouse(QEvent.Type.MouseButtonRelease, QPoint(80, 90))
+        )
+        assert widget.clear_selection_btn.isEnabled() is True
+        assert label.has_selection() is True
+
+        widget.clear_selection_btn.click()
+        assert cleared == [True]
+        assert widget.clear_selection_btn.isEnabled() is False
+        assert label.has_selection() is False
+        assert label._origin is None
+        assert label._current is None

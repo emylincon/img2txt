@@ -232,6 +232,21 @@ class TestMainWindow:
         assert window.preview.text_edit.toPlainText() == ""
         assert window.preview.copy_btn.isEnabled() is False
 
+    def test_clear_selection_button_ocrs_full_image(self, qapp):
+        """Clicking Clear selection re-OCRs the full loaded image."""
+        window = MainWindow()
+        image = Image.new("RGB", (100, 80), color="white")
+        window._current_image = image
+        window.preview.image_label._selection = QRect(10, 10, 40, 30)
+        window.preview.clear_selection_btn.setEnabled(True)
+        window.preview.set_text("stale")
+        with patch.object(window, "_start_ocr") as mock_ocr:
+            window.preview.clear_selection_btn.click()
+        mock_ocr.assert_called_once_with(image)
+        assert window.preview.image_label.has_selection() is False
+        assert window.preview.clear_selection_btn.isEnabled() is False
+        assert window.preview.text_edit.toPlainText() == ""
+
     def test_stale_ocr_result_is_ignored(self, qapp):
         """An older OCR generation must not overwrite a newer result."""
         window = MainWindow()

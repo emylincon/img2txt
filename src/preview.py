@@ -188,12 +188,17 @@ class ImageLabel(QLabel):
         self._origin = None
         self._current = None
         self._active_handle = None
+        self._release_mouse()
         self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
         self._update_scaled()
         self.update()
 
-    def clear_selection(self) -> None:
-        """Reset to the full image and emit ``selection_cleared``."""
+    def clear_selection(self, _checked: bool = False) -> None:
+        """Reset to the full image and emit ``selection_cleared``.
+
+        ``_checked`` accepts the unused ``clicked(bool)`` argument
+        so the method can be connected directly to a button.
+        """
         if (
             self._selection is None
             and self._origin is None
@@ -204,10 +209,13 @@ class ImageLabel(QLabel):
         self._origin = None
         self._current = None
         self._active_handle = None
-        if self.mouseGrabber() is self:
-            self.releaseMouse()
+        self._release_mouse()
         self.update()
         self.selection_cleared.emit()
+
+    def _release_mouse(self) -> None:
+        """Ungrab the mouse so later clicks can reach other widgets."""
+        self.releaseMouse()
 
     def has_selection(self) -> bool:
         """Return True when a crop region is active."""
@@ -352,8 +360,7 @@ class ImageLabel(QLabel):
         ):
             return
 
-        if self.mouseGrabber() is self:
-            self.releaseMouse()
+        self._release_mouse()
 
         widget_rect = QRect(self._origin, self._current).normalized()
         self._origin = None
@@ -420,7 +427,7 @@ class PreviewWidget(QWidget):
         self.clear_selection_btn = QPushButton("Clear selection")
         self.clear_selection_btn.setEnabled(False)
         self.clear_selection_btn.clicked.connect(
-            self.image_label.clear_selection
+            self._on_clear_selection_clicked
         )
         left_layout.addWidget(self.clear_selection_btn)
 
@@ -479,6 +486,11 @@ class PreviewWidget(QWidget):
     def _on_region_selected(self, rect: QRect) -> None:
         self.clear_selection_btn.setEnabled(True)
         self.region_selected.emit(rect)
+
+    def _on_clear_selection_clicked(self, _checked: bool = False) -> None:
+        """Handle the Clear selection button, including mid-drag."""
+        self.image_label.clear_selection()
+        self.clear_selection_btn.setEnabled(False)
 
     def _on_selection_cleared(self) -> None:
         self.clear_selection_btn.setEnabled(False)
