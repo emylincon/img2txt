@@ -159,7 +159,6 @@ class TestImageLabelSelection:
         with (
             patch.object(label, "grabMouse") as mock_grab,
             patch.object(label, "releaseMouse") as mock_release,
-            patch.object(label, "mouseGrabber", return_value=label),
         ):
             label.mousePressEvent(
                 _mouse(QEvent.Type.MouseButtonPress, QPoint(20, 30))
@@ -168,4 +167,39 @@ class TestImageLabelSelection:
             label.mouseReleaseEvent(
                 _mouse(QEvent.Type.MouseButtonRelease, QPoint(80, 90))
             )
-            mock_release.assert_called_once()
+            mock_release.assert_called()
+
+    def test_release_ungrabs_even_if_grabber_identity_fails(self, qapp):
+        """Release must ungrab even when mouseGrabber() is not self."""
+        label = ImageLabel()
+        label.resize(200, 200)
+        pixmap = QPixmap(200, 200)
+        pixmap.fill(QColor("blue"))
+        label.set_image(pixmap)
+        with (
+            patch.object(label, "grabMouse"),
+            patch.object(label, "releaseMouse") as mock_release,
+            patch.object(label, "mouseGrabber", return_value=None),
+        ):
+            label.mousePressEvent(
+                _mouse(QEvent.Type.MouseButtonPress, QPoint(20, 30))
+            )
+            label.mouseReleaseEvent(
+                _mouse(QEvent.Type.MouseButtonRelease, QPoint(80, 90))
+            )
+            mock_release.assert_called()
+
+    def test_clear_selection_always_ungrabs(self, qapp):
+        """Clearing a crop ungrabs so the button can receive clicks."""
+        label = ImageLabel()
+        label.resize(200, 200)
+        pixmap = QPixmap(200, 200)
+        pixmap.fill(QColor("red"))
+        label.set_image(pixmap)
+        label._selection = QRect(10, 10, 40, 40)
+        with (
+            patch.object(label, "releaseMouse") as mock_release,
+            patch.object(label, "mouseGrabber", return_value=None),
+        ):
+            label.clear_selection()
+        mock_release.assert_called()
