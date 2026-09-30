@@ -1,0 +1,26 @@
+name: tag
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  tagger:
+    name: tagger
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: write
+    outputs:
+      tag_name: ${{ steps.get_tag_name.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump version and push tag
+        id: tag_version
+        if: github.ref_type != 'tag'
+        uses: rymndhng/release-on-push-action@v0.28.0
+        with:
+          bump_version_scheme: norelease
+          use_github_release_notes: true
+          tag_prefix: v
